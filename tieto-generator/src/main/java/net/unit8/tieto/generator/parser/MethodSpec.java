@@ -9,5 +9,6 @@ public record MethodSpec(
         String name,
         String returnType,
         List<ParameterSpec> parameters,
-        String javadoc
+        String javadoc,
+        int version
 ) {}

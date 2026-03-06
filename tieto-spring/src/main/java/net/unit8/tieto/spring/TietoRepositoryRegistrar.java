@@ -32,16 +32,17 @@ public class TietoRepositoryRegistrar implements ImportBeanDefinitionRegistrar {
         String[] basePackages = (String[]) attrs.get("basePackages");
         if (basePackages == null || basePackages.length == 0) return;
 
-        var scanner = new ClassPathScanningCandidateComponentProvider(false);
-        // Include all interfaces — we register every interface found in the packages
-        scanner.addIncludeFilter((metadataReader, metadataReaderFactory) -> {
-            try {
-                Class<?> clazz = Class.forName(metadataReader.getClassMetadata().getClassName());
-                return clazz.isInterface();
-            } catch (ClassNotFoundException e) {
-                return false;
+        var scanner = new ClassPathScanningCandidateComponentProvider(false) {
+            @Override
+            protected boolean isCandidateComponent(
+                    org.springframework.beans.factory.annotation.AnnotatedBeanDefinition beanDefinition) {
+                // Allow interfaces (default implementation requires concrete class)
+                return beanDefinition.getMetadata().isInterface();
             }
-        });
+        };
+        // Include all interfaces — we register every interface found in the packages
+        scanner.addIncludeFilter((metadataReader, metadataReaderFactory) ->
+                metadataReader.getClassMetadata().isInterface());
 
         for (String basePackage : basePackages) {
             for (BeanDefinition candidate : scanner.findCandidateComponents(basePackage)) {

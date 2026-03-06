@@ -57,17 +57,54 @@
 
     <build>
         <plugins>
+            <!-- 1. Create fat JAR with all dependencies -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.4.1</version>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>net.unit8.tieto.generator.TietoGeneratorCli</mainClass>
+                                </transformer>
+                            </transformers>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- 2. Prepend shell stub to make a "Really Executable JAR" -->
+            <plugin>
+                <groupId>org.skife.maven</groupId>
+                <artifactId>really-executable-jar-maven-plugin</artifactId>
+                <version>2.1.1</version>
                 <configuration>
-                    <archive>
-                        <manifest>
-                            <mainClass>net.unit8.tieto.generator.TietoGeneratorCli</mainClass>
-                        </manifest>
-                    </archive>
+                    <programFile>tieto</programFile>
                 </configuration>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>really-executable-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

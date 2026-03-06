@@ -4,6 +4,7 @@ import net.unit8.tieto.generator.ai.AiProvider;
 import net.unit8.tieto.generator.ai.AiProviderFactory;
 import net.unit8.tieto.generator.ai.GeneratedFunction;
 import net.unit8.tieto.generator.ai.PromptBuilder;
+import net.unit8.tieto.generator.parser.GeneratorException;
 import net.unit8.tieto.generator.output.DirectDeployer;
 import net.unit8.tieto.generator.output.SqlFileWriter;
 import net.unit8.tieto.generator.parser.MethodSpec;
@@ -14,9 +15,14 @@ import net.unit8.tieto.generator.schema.TableInfo;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -48,11 +54,11 @@ public class GenerateCommand implements Callable<Integer> {
             description = "Database password")
     private String dbPassword;
 
-    @Option(names = "--ai-provider", required = true,
-            description = "AI provider: claude, openai")
+    @Option(names = "--ai-provider",
+            description = "AI provider: claude, openai, claude-cli")
     private String aiProvider;
 
-    @Option(names = "--ai-api-key", required = true,
+    @Option(names = "--ai-api-key",
             description = "API key for the AI provider")
     private String aiApiKey;
 
@@ -60,13 +66,21 @@ public class GenerateCommand implements Callable<Integer> {
             description = "AI model override")
     private String aiModel;
 
+    @Option(names = "--ai-command",
+            description = "Custom CLI command for AI generation (e.g. \"ollama run codellama\")")
+    private String aiCommand;
+
     @Option(names = "--output-dir", defaultValue = "sql/",
             description = "Output directory for generated SQL files")
     private Path outputDir;
 
-    @Option(names = "--output-mode", defaultValue = "file",
-            description = "Output mode: file or deploy")
+    @Option(names = "--output-mode", defaultValue = "deploy",
+            description = "Output mode: deploy (default) or file")
     private String outputMode;
+
+    @Option(names = "--force",
+            description = "Force regeneration even if the function version already exists")
+    private boolean force;
 
     @Override
     public Integer call() throws Exception {
@@ -84,16 +98,28 @@ public class GenerateCommand implements Callable<Integer> {
         System.out.println("Read " + schema.size() + " tables from database");
 
         // 3. For each method, generate a PostgreSQL Function via AI
-        AiProvider ai = AiProviderFactory.create(aiProvider, aiApiKey, aiModel);
+        AiProvider ai = createAiProvider();
         PromptBuilder promptBuilder = new PromptBuilder();
 
         List<GeneratedFunction> functions = new ArrayList<>();
         for (MethodSpec method : repoSpec.methods()) {
-            System.out.println("Generating function for: " + method.name() + "...");
+            String versionedName = resolveFunctionName(repoSpec, method);
+
+            if (!force && functionExists(versionedName, repoSpec.simpleName())) {
+                System.out.println("Skipping " + versionedName + " (already exists)");
+                continue;
+            }
+
+            System.out.println("Generating function for: " + method.name() + " (v" + method.version() + ")...");
             String prompt = promptBuilder.build(repoSpec, method, schema);
             GeneratedFunction generated = ai.generateFunction(prompt);
             functions.add(generated);
             System.out.println("  -> " + generated.functionName());
+        }
+
+        if (functions.isEmpty()) {
+            System.out.println("No functions to generate (all versions up to date)");
+            return 0;
         }
 
         // 4. Output
@@ -108,5 +134,66 @@ public class GenerateCommand implements Callable<Integer> {
         }
 
         return 0;
+    }
+
+    private static String resolveFunctionName(RepositorySpec repo, MethodSpec method) {
+        return camelToSnake(repo.simpleName()) + "_" + camelToSnake(method.name())
+                + "_v" + method.version();
+    }
+
+    private boolean functionExists(String functionName, String repositoryName) {
+        if ("deploy".equals(outputMode)) {
+            return functionExistsInDb(functionName);
+        } else {
+            return functionExistsInFile(functionName, repositoryName);
+        }
+    }
+
+    private boolean functionExistsInDb(String functionName) {
+        try (Connection conn = DriverManager.getConnection(dbUrl, dbUser, dbPassword);
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT 1 FROM information_schema.routines WHERE routine_name = ?")) {
+            ps.setString(1, functionName);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            return false;
+        }
+    }
+
+    private boolean functionExistsInFile(String functionName, String repositoryName) {
+        Path outputFile = outputDir.resolve(camelToSnake(repositoryName) + ".sql");
+        if (!Files.exists(outputFile)) {
+            return false;
+        }
+        try {
+            String content = Files.readString(outputFile);
+            return content.contains(functionName);
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private static String camelToSnake(String camel) {
+        return camel
+                .replaceAll("([A-Z]+)([A-Z][a-z])", "$1_$2")
+                .replaceAll("([a-z0-9])([A-Z])", "$1_$2")
+                .toLowerCase();
+    }
+
+    private AiProvider createAiProvider() {
+        if (aiCommand != null) {
+            return AiProviderFactory.createFromCommand(aiCommand);
+        }
+        if (aiProvider == null) {
+            throw new GeneratorException(
+                    "Either --ai-provider or --ai-command must be specified");
+        }
+        if (aiApiKey == null && !aiProvider.equalsIgnoreCase("claude-cli")) {
+            throw new GeneratorException(
+                    "--ai-api-key is required for provider: " + aiProvider);
+        }
+        return AiProviderFactory.create(aiProvider, aiApiKey, aiModel);
     }
 }

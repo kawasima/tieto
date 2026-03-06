@@ -103,7 +103,8 @@ public class PromptBuilder {
     }
 
     private String resolveFunctionName(RepositorySpec repo, MethodSpec method) {
-        return camelToSnake(repo.simpleName()) + "_" + camelToSnake(method.name());
+        return camelToSnake(repo.simpleName()) + "_" + camelToSnake(method.name())
+                + "_v" + method.version();
     }
 
     private static String camelToSnake(String camel) {

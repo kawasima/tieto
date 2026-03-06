@@ -105,6 +105,7 @@ public class ExampleApp {
         System.out.println("  Result: " + (notFound.isEmpty() ? "Optional.empty" : notFound));
 
         System.out.println("\n=== All operations completed successfully ===");
+        System.exit(0);
     }
 
     private static DataSource createDataSource() {

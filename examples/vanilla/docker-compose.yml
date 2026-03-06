@@ -1,0 +1,11 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: tieto_example
+      POSTGRES_USER: tieto
+      POSTGRES_PASSWORD: tieto
+    volumes:
+      - ./src/main/resources/db:/docker-entrypoint-initdb.d

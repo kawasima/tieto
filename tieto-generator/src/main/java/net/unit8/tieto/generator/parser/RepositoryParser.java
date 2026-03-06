@@ -4,10 +4,12 @@ import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.AnnotationExpr;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Parses a Repository interface Java source file using JavaParser,
@@ -58,12 +60,28 @@ public class RepositoryParser {
                         p.getTypeAsString()))
                 .toList();
 
+        int version = extractVersion(md);
+
         return new MethodSpec(
                 md.getNameAsString(),
                 md.getTypeAsString(),
                 params,
-                javadoc
+                javadoc,
+                version
         );
+    }
+
+    private static int extractVersion(MethodDeclaration md) {
+        Optional<AnnotationExpr> annotation = md.getAnnotationByName("FunctionVersion");
+        if (annotation.isEmpty()) {
+            return 1;
+        }
+        AnnotationExpr a = annotation.get();
+        if (a.isSingleMemberAnnotationExpr()) {
+            return Integer.parseInt(
+                    a.asSingleMemberAnnotationExpr().getMemberValue().toString());
+        }
+        return 1;
     }
 
     private static String extractSimpleName(String fullyQualifiedName) {

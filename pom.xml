@@ -16,7 +16,6 @@
         <module>tieto-core</module>
         <module>tieto-spring</module>
         <module>tieto-generator</module>
-        <module>tieto-example</module>
     </modules>
 
     <properties>
@@ -25,13 +24,13 @@
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-        <jackson.version>2.17.0</jackson.version>
-        <postgresql.version>42.7.3</postgresql.version>
-        <picocli.version>4.7.6</picocli.version>
-        <javaparser.version>3.26.0</javaparser.version>
+        <jackson.version>2.21.1</jackson.version>
+        <postgresql.version>42.7.10</postgresql.version>
+        <picocli.version>4.7.7</picocli.version>
+        <javaparser.version>3.28.0</javaparser.version>
         <spring-boot.version>3.3.0</spring-boot.version>
-        <junit.version>5.11.0</junit.version>
-        <testcontainers.version>1.20.0</testcontainers.version>
+        <junit.version>5.14.3</junit.version>
+        <testcontainers.version>1.21.4</testcontainers.version>
     </properties>
 
     <dependencyManagement>
