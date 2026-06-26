@@ -207,18 +207,27 @@ public final class GeneratedSqlValidator {
      */
     private static void checkBindsViaUsing(String code, String functionName) {
         Matcher execute = EXECUTE_KW.matcher(code);
+        boolean any = false;
         while (execute.find()) {
+            any = true;
             int semicolon = code.indexOf(';', execute.end());
             int stmtEnd = semicolon < 0 ? code.length() : semicolon;
             String statement = code.substring(execute.end(), stmtEnd);
             Matcher using = USING_KW.matcher(statement);
-            if (using.find() && SPEC_PARAM.matcher(statement).find(using.end())) {
-                return;
+            // EVERY EXECUTE must bind the spec — one unbound EXECUTE could run a
+            // concatenated query even if another, harmless EXECUTE does bind spec.
+            if (!(using.find() && SPEC_PARAM.matcher(statement).find(using.end()))) {
+                throw new GeneratorException(
+                        functionName + " has an EXECUTE that does not bind the spec via USING spec;"
+                                + " every dynamic statement must run with USING spec so values are"
+                                + " bound, not concatenated.");
             }
         }
-        throw new GeneratorException(
-                functionName + " must run its dynamic WHERE clause with EXECUTE ... USING spec"
-                        + " (binding the spec parameter) so spec values are bound, not concatenated.");
+        if (!any) {
+            throw new GeneratorException(
+                    functionName + " must run its dynamic WHERE clause with EXECUTE ... USING spec"
+                            + " (binding the spec parameter) so spec values are bound, not concatenated.");
+        }
     }
 
     /** Reads the simple quoted/bare key immediately after a {@code ->>} at {@code from}, or null. */
@@ -259,7 +268,10 @@ public final class GeneratedSqlValidator {
      * (e.g. a single-quoted {@code AS '...'} body), so the caller can fail closed.
      */
     private static String functionBody(String statement) {
-        Matcher returns = RETURNS_KW.matcher(statement);
+        // Locate RETURNS on a strings/comments-stripped copy (length-preserving, so
+        // indices align) so a 'RETURNS' inside a parameter DEFAULT literal cannot
+        // anchor the search before the real RETURNS clause.
+        Matcher returns = RETURNS_KW.matcher(stripLiteralsAndComments(statement));
         int from = returns.find() ? returns.end() : 0;
         int n = statement.length();
         for (int i = from; i < n; i++) {

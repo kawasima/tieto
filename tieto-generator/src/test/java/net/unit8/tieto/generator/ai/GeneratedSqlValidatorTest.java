@@ -294,6 +294,37 @@ class GeneratedSqlValidatorTest {
     }
 
     @Test
+    void rejectsAMainWithAnUnboundExecuteEvenIfAnotherExecuteBindsSpec() {
+        String main = "BEGIN"
+                + " RETURN QUERY EXECUTE 'SELECT to_jsonb(o) FROM orders o WHERE '"
+                + " || order_repository_find_by_v1_spec_to_sql(spec, '{}'::text[]);"
+                + " EXECUTE 'SELECT 1' USING spec; END";
+        assertThatThrownBy(() -> validator.validate(
+                specSql(main, SAFE_HELPER), "order_repository_find_by_v1", true))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("USING");
+    }
+
+    @Test
+    void inspectsTheRealBodyDespiteAReturnsLiteralAndDollarDefaultDecoy() {
+        String sql = """
+                CREATE OR REPLACE FUNCTION order_repository_find_by_v1(
+                  spec jsonb,
+                  hint text DEFAULT 'RETURNS',
+                  h2 text DEFAULT $d$ EXECUTE 'q' USING spec $d$)
+                RETURNS SETOF jsonb LANGUAGE plpgsql AS $main$
+                BEGIN RETURN QUERY EXECUTE 'SELECT to_jsonb(o) FROM orders o WHERE c = '
+                || quote_literal(spec->>'customerId') USING spec; END
+                $main$;
+                CREATE OR REPLACE FUNCTION order_repository_find_by_v1_spec_to_sql(node jsonb, path text[])
+                RETURNS text LANGUAGE plpgsql AS $body$ BEGIN RETURN 'TRUE'; END $body$;
+                """;
+        assertThatThrownBy(() -> validator.validate(sql, "order_repository_find_by_v1", true))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("customerId");
+    }
+
+    @Test
     void rejectsAMainWhoseUsingIsOnlyInAComment() {
         String main = "BEGIN -- TODO: bind with USING spec later\n"
                 + "RETURN QUERY EXECUTE ('SELECT 1'); END";
