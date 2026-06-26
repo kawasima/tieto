@@ -190,6 +190,14 @@ public class PromptBuilder {
                     END LOOP;
                     IF array_length(parts,1) IS NULL THEN RETURN 'TRUE'; END IF;
                     RETURN '(' || array_to_string(parts, ' AND ') || ')';
+                  ELSIF k = 'or' THEN
+                    FOR child IN SELECT jsonb_array_elements(node->'specs') LOOP
+                      parts := parts || %1$s_spec_to_sql(child, path || ARRAY['specs', i::text]); i := i + 1;
+                    END LOOP;
+                    IF array_length(parts,1) IS NULL THEN RETURN 'FALSE'; END IF;
+                    RETURN '(' || array_to_string(parts, ' OR ') || ')';
+                  ELSIF k = 'not' THEN
+                    RETURN 'NOT (' || %1$s_spec_to_sql(node->'spec', path || ARRAY['spec']) || ')';
                   ELSIF k = 'forCustomer' THEN
                     RETURN format('customer_id = ($1 #>> %%L)', path || ARRAY['customerId']);
                   ELSE RAISE EXCEPTION 'unknown spec kind: %%', k; END IF;

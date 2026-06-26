@@ -233,6 +233,66 @@ class GeneratedSqlValidatorTest {
                 .hasMessageContaining("customerId");
     }
 
+    @Test
+    void rejectsAHelperOrMainThatExtractsAValueInCodeWithHashArrow() {
+        // #>> (path-to-text) is a value extraction just like ->>; it must not appear
+        // in code (the contract emits "$1 #>> path" only as text inside a string).
+        String main = "BEGIN RETURN QUERY EXECUTE 'SELECT to_jsonb(o) FROM orders o WHERE customer_id = '"
+                + " || quote_literal(spec #>> '{customerId}') USING spec; END";
+        assertThatThrownBy(() -> validator.validate(
+                specSql(main, SAFE_HELPER), "order_repository_find_by_v1", true))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("#>>");
+    }
+
+    @Test
+    void rejectsASpecFunctionWithASingleQuotedBodyThatCannotBeVerified() {
+        String sql = """
+                CREATE OR REPLACE FUNCTION order_repository_find_by_v1(spec jsonb)
+                RETURNS SETOF jsonb LANGUAGE sql AS 'SELECT 1';
+                CREATE OR REPLACE FUNCTION order_repository_find_by_v1_spec_to_sql(node jsonb, path text[])
+                RETURNS text LANGUAGE sql AS $body$ SELECT 'TRUE' $body$;
+                """;
+        assertThatThrownBy(() -> validator.validate(sql, "order_repository_find_by_v1", true))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("$$");
+    }
+
+    @Test
+    void inspectsTheRealBodyNotADollarQuotedParameterDefaultDecoy() {
+        // A dollar-quoted DEFAULT before the body must not be mistaken for the body.
+        String sql = """
+                CREATE OR REPLACE FUNCTION order_repository_find_by_v1(spec jsonb, hint text DEFAULT $h$ EXECUTE USING $h$)
+                RETURNS SETOF jsonb LANGUAGE plpgsql AS $main$
+                BEGIN RETURN QUERY EXECUTE 'SELECT to_jsonb(o) FROM orders o WHERE customer_id = '
+                || quote_literal(spec->>'customerId') USING spec; END
+                $main$;
+                CREATE OR REPLACE FUNCTION order_repository_find_by_v1_spec_to_sql(node jsonb, path text[])
+                RETURNS text LANGUAGE plpgsql AS $body$ BEGIN RETURN 'TRUE'; END $body$;
+                """;
+        assertThatThrownBy(() -> validator.validate(sql, "order_repository_find_by_v1", true))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("customerId");
+    }
+
+    @Test
+    void doesNotFlagAnArrowInsideAComment() {
+        String helper = "BEGIN /* never write node->>'customerId' here */ RETURN 'TRUE'; END";
+        assertThatCode(() -> validator.validate(
+                specSql(SAFE_MAIN, helper), "order_repository_find_by_v1", true))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void rejectsAMainWhoseUsingIsOnlyInAComment() {
+        String main = "BEGIN -- TODO: bind with USING spec later\n"
+                + "RETURN QUERY EXECUTE ('SELECT 1'); END";
+        assertThatThrownBy(() -> validator.validate(
+                specSql(main, SAFE_HELPER), "order_repository_find_by_v1", true))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("USING");
+    }
+
     /** Wraps main and helper bodies into a full main+helper pair. */
     private static String specSql(String mainBody, String helperBody) {
         return """

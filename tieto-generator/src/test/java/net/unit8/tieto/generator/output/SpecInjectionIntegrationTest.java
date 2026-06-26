@@ -31,8 +31,8 @@ class SpecInjectionIntegrationTest {
     @BeforeAll
     static void deploy() throws SQLException {
         try (Connection conn = newConnection(); Statement stmt = conn.createStatement()) {
-            stmt.execute("CREATE TABLE orders (id bigint PRIMARY KEY, customer_id text)");
-            stmt.execute("INSERT INTO orders VALUES (1, 'CUST-001'), (2, 'CUST-002')");
+            stmt.execute("CREATE TABLE orders (id bigint PRIMARY KEY, customer_id text, amount numeric)");
+            stmt.execute("INSERT INTO orders VALUES (1, 'CUST-001', 100), (2, 'CUST-002', 500)");
             stmt.execute("""
                     CREATE FUNCTION find_by_spec_to_sql(node jsonb, path text[]) RETURNS text
                     LANGUAGE plpgsql AS $$
@@ -46,8 +46,12 @@ class SpecInjectionIntegrationTest {
                         END LOOP;
                         IF array_length(parts,1) IS NULL THEN RETURN 'TRUE'; END IF;
                         RETURN '(' || array_to_string(parts, ' AND ') || ')';
+                      ELSIF k = 'not' THEN
+                        RETURN 'NOT (' || find_by_spec_to_sql(node->'spec', path || ARRAY['spec']) || ')';
                       ELSIF k = 'forCustomer' THEN
                         RETURN format('customer_id = ($1 #>> %L)', path || ARRAY['customerId']);
+                      ELSIF k = 'highValue' THEN
+                        RETURN format('amount >= ($1 #>> %L)::numeric', path || ARRAY['min']);
                       ELSE RAISE EXCEPTION 'unknown spec kind: %', k; END IF;
                     END; $$
                     """);
@@ -82,6 +86,31 @@ class SpecInjectionIntegrationTest {
         assertThat(findBy("""
                 {"kind":"and","specs":[{"kind":"forCustomer","customerId":"CUST-002"}]}"""))
                 .containsExactly(2L);
+    }
+
+    @Test
+    void numericLeafBindsAndComparesCorrectly() throws SQLException {
+        assertThat(findBy("{\"kind\":\"highValue\",\"min\":200}")).containsExactly(2L);
+    }
+
+    @Test
+    void notAndMultiChildAndComposeWithPathThreading() throws SQLException {
+        assertThat(findBy("""
+                {"kind":"not","spec":{"kind":"forCustomer","customerId":"CUST-001"}}"""))
+                .containsExactly(2L);
+        assertThat(findBy("""
+                {"kind":"and","specs":[
+                  {"kind":"forCustomer","customerId":"CUST-002"},
+                  {"kind":"highValue","min":200}]}"""))
+                .containsExactly(2L);
+    }
+
+    @Test
+    void aMaliciousValueNestedDeepInTheTreeIsStillBound() throws SQLException {
+        assertThat(findBy("""
+                {"kind":"and","specs":[
+                  {"kind":"forCustomer","customerId":"x' OR '1'='1"}]}"""))
+                .isEmpty();
     }
 
     private static java.util.List<Long> findBy(String specJson) throws SQLException {
