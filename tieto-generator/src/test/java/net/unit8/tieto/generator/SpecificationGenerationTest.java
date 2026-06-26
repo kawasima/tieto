@@ -76,7 +76,10 @@ class SpecificationGenerationTest {
                 .contains("kind=\"and\"")
                 .contains("kind=\"highValue\"")
                 .contains("order_repository_find_by_v1_spec_to_sql")
-                .contains("quote_literal");
+                .contains("quote_literal")
+                // the hardened anti-injection guidance must be present
+                .contains("NEVER concatenate")
+                .contains("%L");
     }
 
     private MethodSpec method(String name) {

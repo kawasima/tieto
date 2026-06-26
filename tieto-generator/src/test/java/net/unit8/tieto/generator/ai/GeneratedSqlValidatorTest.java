@@ -181,4 +181,72 @@ class GeneratedSqlValidatorTest {
                 .isInstanceOf(GeneratorException.class)
                 .hasMessageContaining("truncated");
     }
+
+    // ----- spec_to_sql injection safety -----
+
+    @Test
+    void acceptsASpecHelperThatEmbedsValuesWithFormatL() {
+        assertThatCode(() -> validator.validate(
+                specSql("SELECT format('customer_id = %L', spec->>'customerId')"),
+                "order_repository_find_by_v1", true))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void acceptsASpecHelperThatWrapsValuesWithQuoteLiteral() {
+        assertThatCode(() -> validator.validate(
+                specSql("SELECT 'customer_id = ' || quote_literal(spec->>'customerId')"),
+                "order_repository_find_by_v1", true))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void acceptsKindDispatchComparisonAndRecursion() {
+        // spec->>'kind' used in a comparison (not concatenated) and a recursive
+        // call over spec->'specs' must not be flagged.
+        String body = "SELECT CASE WHEN spec->>'kind' = 'forCustomer' "
+                + "THEN format('customer_id = %L', spec->>'customerId') "
+                + "WHEN spec->>'kind' = 'and' "
+                + "THEN string_agg(order_repository_find_by_v1_spec_to_sql(e), ' AND ') "
+                + "ELSE 'TRUE' END FROM jsonb_array_elements(spec->'specs') e";
+        assertThatCode(() -> validator.validate(specSql(body), "order_repository_find_by_v1", true))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void rejectsASpecHelperThatConcatenatesAValueWithParentheses() {
+        assertThatThrownBy(() -> validator.validate(
+                specSql("SELECT 'customer_id = ' || (spec->>'customerId')"),
+                "order_repository_find_by_v1", true))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("injection");
+    }
+
+    @Test
+    void rejectsASpecHelperThatConcatenatesAValueWithoutParentheses() {
+        assertThatThrownBy(() -> validator.validate(
+                specSql("SELECT 'customer_id = ' || spec->>'customerId'"),
+                "order_repository_find_by_v1", true))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("injection");
+    }
+
+    @Test
+    void rejectsASpecHelperWhereTheValueComesBeforeTheConcatenation() {
+        assertThatThrownBy(() -> validator.validate(
+                specSql("SELECT (spec->>'customerId') || ' = customer_id'"),
+                "order_repository_find_by_v1", true))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("injection");
+    }
+
+    /** Wraps a {@code _spec_to_sql} helper body into a full valid main+helper pair. */
+    private static String specSql(String helperBody) {
+        return """
+                CREATE OR REPLACE FUNCTION order_repository_find_by_v1(spec jsonb)
+                RETURNS SETOF jsonb LANGUAGE plpgsql AS $$ BEGIN RETURN QUERY EXECUTE 'SELECT 1'; END $$;
+                CREATE OR REPLACE FUNCTION order_repository_find_by_v1_spec_to_sql(spec jsonb)
+                RETURNS text LANGUAGE sql AS $body$ %s $body$;
+                """.formatted(helperBody);
+    }
 }

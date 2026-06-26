@@ -160,8 +160,23 @@ public class PromptBuilder {
                 - kind "not": 'NOT (' || %1$s_spec_to_sql(spec->'spec') || ')'.
                 - any other kind: a LEAF predicate. Derive its SQL condition from the kind
                   name, its fields, and the schema (map the domain predicate to the right
-                  column(s) or aggregate expression). Embed field values safely with
-                  quote_literal()/format() to avoid SQL injection.
+                  column(s) or aggregate expression).
+
+                SECURITY — embedding spec field values (MANDATORY):
+                - NEVER concatenate a spec value directly into the SQL string. Do NOT write
+                  '... = ' || (spec->>'field') — that is a SQL-injection hole reachable from
+                  a normal repository call.
+                - Build every leaf condition with format(), using %%L for VALUES and %%I for
+                  IDENTIFIERS. Examples:
+                    format('customer_id = %%L', spec->>'customerId')
+                    format('SUM(quantity * unit_price) >= %%L', (spec->>'min')::numeric)
+                - If you must use || concatenation, wrap every value in quote_literal() and
+                  every identifier in quote_ident():
+                    'customer_id = ' || quote_literal(spec->>'customerId')
+                - %%L / quote_literal() also handle NULLs and embedded quotes correctly.
+                - It is fine to read spec->>'kind' for dispatching and to pass spec->'specs' /
+                  spec->'spec' to the recursive helper; only raw value concatenation is unsafe.
+
                 - A NULL or absent spec means "no condition" (TRUE).
                 Output the MAIN function FIRST, then the helper function.
                 """.formatted(functionName);
