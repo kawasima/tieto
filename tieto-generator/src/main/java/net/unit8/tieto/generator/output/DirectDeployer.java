@@ -36,17 +36,37 @@ public class DirectDeployer {
             throw new GeneratorException(
                     "Failed to start deploy transaction: " + e.getMessage(), e);
         }
-        try (Statement stmt = conn.createStatement()) {
-            for (GeneratedFunction func : functions) {
-                stmt.execute(func.sqlBody());
-            }
+        try {
+            executeAll(conn, functions);
             conn.commit();
         } catch (SQLException e) {
             rollback(conn);
             throw new GeneratorException(
-                    "Failed to deploy function: " + e.getMessage(), e);
+                    "Failed to commit deploy: " + e.getMessage(), e);
+        } catch (GeneratorException e) {
+            rollback(conn);
+            throw e;
         } finally {
             restoreAutoCommit(conn);
+        }
+    }
+
+    /**
+     * Executes the CREATE statements on the connection without managing the
+     * transaction. The caller owns commit/rollback — used when other work (e.g. an
+     * injection probe) must run in the same transaction before the deploy is committed.
+     *
+     * @param conn the database connection
+     * @param functions the generated functions to deploy
+     */
+    public void executeAll(Connection conn, List<GeneratedFunction> functions) {
+        try (Statement stmt = conn.createStatement()) {
+            for (GeneratedFunction func : functions) {
+                stmt.execute(func.sqlBody());
+            }
+        } catch (SQLException e) {
+            throw new GeneratorException(
+                    "Failed to deploy function: " + e.getMessage(), e);
         }
     }
 

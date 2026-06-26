@@ -120,16 +120,17 @@ public final class GeneratedSqlValidator {
     private static final Pattern SPEC_PARAM = Pattern.compile("(?i)\\bspec\\b");
 
     /**
-     * Best-effort backstop for the parameterized-spec contract. The contract — spec
-     * values are referenced from the bound spec ({@code $1 #>> path}) inside the
-     * EXECUTEd string and never read in code — is what makes injection impossible;
-     * the runtime guarantee is proven by the integration test. This check catches the
-     * deviations a model is most likely to make: extracting a value <em>in code</em>
+     * Cheap pre-deploy filter for the parameterized-spec contract — fast feedback before
+     * a database round-trip, and the only check available in file-output mode. It catches
+     * the deviations a model is most likely to make: extracting a value <em>in code</em>
      * with {@code ->>} (the only allowed key is {@code 'kind'}, for dispatch) or with
      * {@code #>>}. It runs on the body with strings and comments removed, so an emitted
-     * {@code $1 #>> path} or a {@code ->>} inside a comment is not mistaken for code. It
-     * is not a complete proof: an exotic extraction (e.g. {@code (node->'x')::text}) can
-     * still slip past — the runtime binding, not this scan, is the boundary.
+     * {@code $1 #>> path} or a {@code ->>} inside a comment is not mistaken for code. It is
+     * deliberately not a complete proof: an exotic extraction (e.g. {@code (node->'x')::text}
+     * or {@code jsonb_extract_path_text}) can slip past. The authoritative check is the
+     * deploy-time {@code SpecInjectionProbe}, which calls the function with a single-quote
+     * leaf value and rejects it if that value reaches the SQL text — catching concatenation
+     * regardless of how the value was extracted.
      */
     private static void checkNoSpecValueExtraction(String body, String functionName) {
         int i = 0;
