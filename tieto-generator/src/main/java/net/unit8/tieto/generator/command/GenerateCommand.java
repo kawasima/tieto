@@ -3,6 +3,7 @@ package net.unit8.tieto.generator.command;
 import net.unit8.tieto.generator.ai.AiProvider;
 import net.unit8.tieto.generator.ai.AiProviderFactory;
 import net.unit8.tieto.generator.ai.GeneratedFunction;
+import net.unit8.tieto.generator.ai.GeneratedSqlValidator;
 import net.unit8.tieto.generator.ai.PromptBuilder;
 import net.unit8.tieto.generator.parser.GeneratorException;
 import net.unit8.tieto.generator.output.DirectDeployer;
@@ -100,6 +101,7 @@ public class GenerateCommand implements Callable<Integer> {
         // 3. For each method, generate a PostgreSQL Function via AI
         AiProvider ai = createAiProvider();
         PromptBuilder promptBuilder = new PromptBuilder();
+        GeneratedSqlValidator validator = new GeneratedSqlValidator();
 
         List<GeneratedFunction> functions = new ArrayList<>();
         for (MethodSpec method : repoSpec.methods()) {
@@ -113,6 +115,9 @@ public class GenerateCommand implements Callable<Integer> {
             System.out.println("Generating function for: " + method.name() + " (v" + method.version() + ")...");
             String prompt = promptBuilder.build(repoSpec, method, schema);
             GeneratedFunction generated = ai.generateFunction(prompt);
+            // Never deploy or write unvalidated AI output: only the expected
+            // CREATE OR REPLACE FUNCTION (and its _spec_to_sql helper) are allowed.
+            validator.validate(generated.sqlBody(), versionedName);
             functions.add(generated);
             System.out.println("  -> " + generated.functionName());
         }
