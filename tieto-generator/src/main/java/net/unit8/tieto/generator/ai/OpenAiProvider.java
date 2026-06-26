@@ -60,13 +60,15 @@ public class OpenAiProvider extends AbstractHttpAiProvider {
 
         JsonNode message = choice.get("message");
         JsonNode content = message == null ? null : message.get("content");
-        if (content == null || content.isNull()) {
-            // e.g. a content-filtered or refusal completion: there is no SQL to deploy.
+        String result = (content == null || content.isNull()) ? "" : content.asText().trim();
+        if (result.isEmpty()) {
+            // A content-filtered/refusal completion, or an empty/whitespace one: no SQL to
+            // deploy. Reject it here (like the Claude path) rather than returning empty SQL.
             throw new GeneratorException(
                     "OpenAI response contained no message content (finish_reason="
                             + choice.path("finish_reason").asText("unknown") + ")");
         }
-        return content.asText().trim();
+        return result;
     }
 
     /**
@@ -77,10 +79,7 @@ public class OpenAiProvider extends AbstractHttpAiProvider {
     private void checkNotTruncated(JsonNode choice) {
         JsonNode finishReason = choice.get("finish_reason");
         if (finishReason != null && "length".equals(finishReason.asText())) {
-            throw new GeneratorException(
-                    "OpenAI response was truncated (finish_reason=length) at max_tokens ("
-                            + maxTokens + "); the generated function is incomplete and was not"
-                            + " deployed. Simplify the method spec or raise the token limit.");
+            throw truncatedResponse("(finish_reason=length) ");
         }
     }
 }

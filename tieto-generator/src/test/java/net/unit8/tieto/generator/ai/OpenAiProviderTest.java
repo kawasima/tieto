@@ -95,6 +95,17 @@ class OpenAiProviderTest {
                 .hasMessageContaining("content_filter");
     }
 
+    @Test
+    void rejectsAResponseWithBlankContent() {
+        // 200 OK, finish_reason=stop, but the assistant message is empty/whitespace.
+        responseBody = """
+                {"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"   "}}]}""";
+
+        assertThatThrownBy(() -> provider().generateFunction("p"))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("no message content");
+    }
+
     private static String completeResponse() {
         return """
                 {"choices":[{"finish_reason":"stop","message":{"content":

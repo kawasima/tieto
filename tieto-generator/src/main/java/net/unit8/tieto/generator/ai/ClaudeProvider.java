@@ -85,10 +85,7 @@ public class ClaudeProvider extends AbstractHttpAiProvider {
     private void checkNotTruncated(JsonNode root) {
         JsonNode stopReason = root.get("stop_reason");
         if (stopReason != null && "max_tokens".equals(stopReason.asText())) {
-            throw new GeneratorException(
-                    "Claude response was truncated at max_tokens (" + maxTokens
-                            + "); the generated function is incomplete and was not deployed."
-                            + " Simplify the method spec or raise the token limit.");
+            throw truncatedResponse("");
         }
     }
 }

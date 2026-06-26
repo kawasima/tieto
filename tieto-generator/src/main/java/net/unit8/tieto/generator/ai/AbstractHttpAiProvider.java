@@ -20,6 +20,8 @@ import java.net.http.HttpResponse;
  */
 abstract class AbstractHttpAiProvider implements AiProvider {
 
+    // Keep in sync with the --ai-max-tokens default in GenerateCommand (a separate
+    // compile-time literal because @Option's defaultValue cannot reference a constant).
     protected static final int DEFAULT_MAX_TOKENS = 8192;
 
     protected final String apiKey;
@@ -80,6 +82,18 @@ abstract class AbstractHttpAiProvider implements AiProvider {
         // temperature 0 makes generation near-deterministic, minimizing run-to-run drift.
         node.put("temperature", 0);
         return node;
+    }
+
+    /**
+     * The shared "response truncated at the token limit" error. {@code signalDetail} is
+     * the provider's truncation signal rendered for the message (empty, or e.g.
+     * {@code "(finish_reason=length) "}), inserted before {@code "at max_tokens"}.
+     */
+    protected GeneratorException truncatedResponse(String signalDetail) {
+        return new GeneratorException(
+                providerName() + " response was truncated " + signalDetail
+                        + "at max_tokens (" + maxTokens + "); the generated function is incomplete"
+                        + " and was not deployed. Simplify the method spec or raise the token limit.");
     }
 
     /** Human-readable provider name for error messages (e.g. {@code "Claude"}). */
