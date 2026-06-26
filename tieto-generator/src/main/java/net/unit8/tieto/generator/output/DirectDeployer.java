@@ -17,7 +17,11 @@ public class DirectDeployer {
      * Deploys all generated functions in a single transaction, so a failure
      * partway through rolls back rather than leaving the database half-migrated.
      *
-     * @param conn the database connection
+     * <p>The connection is expected to own no pending work: this method takes
+     * over transaction control, committing on success and rolling back on
+     * failure. Do not pass a connection with an in-progress transaction.</p>
+     *
+     * @param conn the database connection (no transaction in progress)
      * @param functions the generated functions to deploy
      */
     public void deploy(Connection conn, List<GeneratedFunction> functions) {

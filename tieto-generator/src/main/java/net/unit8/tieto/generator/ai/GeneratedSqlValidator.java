@@ -3,7 +3,9 @@ package net.unit8.tieto.generator.ai;
 import net.unit8.tieto.generator.parser.GeneratorException;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -24,23 +26,31 @@ import java.util.regex.Pattern;
  */
 public final class GeneratedSqlValidator {
 
+    // The function name is either a double-quoted identifier (case-preserved) or
+    // a bare identifier (PostgreSQL folds it to lower case). A schema qualifier is
+    // intentionally NOT permitted: the generated functions are unqualified, so a
+    // schema-qualified name (e.g. pg_catalog.foo) must be rejected, not stripped.
     private static final Pattern CREATE_FUNCTION_HEAD = Pattern.compile(
-            "(?is)\\s*CREATE\\s+OR\\s+REPLACE\\s+FUNCTION\\s+(?:[A-Za-z_]\\w*\\.)?([A-Za-z_]\\w*)");
+            "(?is)\\s*CREATE\\s+OR\\s+REPLACE\\s+FUNCTION\\s+(?:\"([^\"]+)\"|([A-Za-z_]\\w*))");
 
     /**
-     * Validates that {@code sql} defines only the expected function (and,
-     * optionally, its {@code _spec_to_sql} helper).
+     * Validates that {@code sql} defines only the expected function (and, when
+     * {@code allowSpecHelper} is true, its {@code _spec_to_sql} helper).
      *
      * @param sql the generated SQL
-     * @param expectedFunctionName the function name the generator asked for
+     * @param expectedFunctionName the function name the generator asked for (lower case)
+     * @param allowSpecHelper whether a {@code <name>_spec_to_sql} helper is expected
+     *        (true only for methods that take a composable Specification)
      * @throws GeneratorException if the SQL contains anything other than the
      *         allowed {@code CREATE OR REPLACE FUNCTION} statements, or does not
      *         define the expected function
      */
-    public void validate(String sql, String expectedFunctionName) {
-        Set<String> allowed = Set.of(
-                expectedFunctionName,
-                expectedFunctionName + "_spec_to_sql");
+    public void validate(String sql, String expectedFunctionName, boolean allowSpecHelper) {
+        Set<String> allowed = new LinkedHashSet<>();
+        allowed.add(expectedFunctionName);
+        if (allowSpecHelper) {
+            allowed.add(expectedFunctionName + "_spec_to_sql");
+        }
 
         List<String> statements = splitTopLevelStatements(sql);
         if (statements.isEmpty()) {
@@ -58,7 +68,7 @@ public final class GeneratedSqlValidator {
                                 + " contains a non-CREATE-FUNCTION statement: "
                                 + preview(statement));
             }
-            String name = head.group(1);
+            String name = functionName(head);
             if (!allowed.contains(name)) {
                 throw new GeneratorException(
                         "Generated SQL defines an unexpected function '" + name
@@ -74,6 +84,19 @@ public final class GeneratedSqlValidator {
                     "Generated SQL does not define the expected function "
                             + expectedFunctionName);
         }
+    }
+
+    /**
+     * Resolves the function name from a {@link #CREATE_FUNCTION_HEAD} match,
+     * mirroring PostgreSQL identifier folding: a quoted identifier keeps its
+     * case; a bare identifier folds to lower case.
+     */
+    private static String functionName(Matcher head) {
+        String quoted = head.group(1);
+        if (quoted != null) {
+            return quoted;
+        }
+        return head.group(2).toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -162,6 +185,12 @@ public final class GeneratedSqlValidator {
             return i;
         }
         int n = sql.length();
+        // A dollar-quote tag follows identifier rules: it cannot start with a
+        // digit. So $9$ is NOT a dollar-quote (it is the parameter $9 then $),
+        // matching how PostgreSQL/pgjdbc tokenize it.
+        if (i + 1 < n && Character.isDigit(sql.charAt(i + 1))) {
+            return i;
+        }
         int j = i + 1;
         while (j < n && (Character.isLetterOrDigit(sql.charAt(j)) || sql.charAt(j) == '_')) {
             j++;

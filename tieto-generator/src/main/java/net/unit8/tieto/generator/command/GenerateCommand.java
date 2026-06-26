@@ -116,8 +116,9 @@ public class GenerateCommand implements Callable<Integer> {
             String prompt = promptBuilder.build(repoSpec, method, schema);
             GeneratedFunction generated = ai.generateFunction(prompt);
             // Never deploy or write unvalidated AI output: only the expected
-            // CREATE OR REPLACE FUNCTION (and its _spec_to_sql helper) are allowed.
-            validator.validate(generated.sqlBody(), versionedName);
+            // CREATE OR REPLACE FUNCTION is allowed, plus the _spec_to_sql helper
+            // when (and only when) the method takes a composable Specification.
+            validator.validate(generated.sqlBody(), versionedName, hasSpecParameter(method));
             functions.add(generated);
             System.out.println("  -> " + generated.functionName());
         }
@@ -144,6 +145,16 @@ public class GenerateCommand implements Callable<Integer> {
     private static String resolveFunctionName(RepositorySpec repo, MethodSpec method) {
         return camelToSnake(repo.simpleName()) + "_" + camelToSnake(method.name())
                 + "_v" + method.version();
+    }
+
+    /**
+     * Whether the method takes a composable Specification (a sealed type), in
+     * which case the generator also emits a {@code _spec_to_sql} helper. Mirrors
+     * the condition in {@code PromptBuilder.specRules}.
+     */
+    private static boolean hasSpecParameter(MethodSpec method) {
+        return method.parameters().stream()
+                .anyMatch(p -> p.typeDef() != null && p.typeDef().sealed());
     }
 
     private boolean functionExists(String functionName, String repositoryName) {
