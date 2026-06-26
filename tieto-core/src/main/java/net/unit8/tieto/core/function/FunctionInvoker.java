@@ -34,8 +34,9 @@ public final class FunctionInvoker {
 
         String sql = buildSql(functionName, metadata.parameters().size());
 
+        Connection conn = null;
         try {
-            Connection conn = connectionProvider.getConnection();
+            conn = connectionProvider.getConnection();
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 bindParameters(ps, metadata.parameters(), args, mapperRegistry);
 
@@ -51,6 +52,23 @@ public final class FunctionInvoker {
         } catch (SQLException e) {
             throw new FunctionCallException(
                     "Failed to call function: " + functionName, e);
+        } finally {
+            releaseQuietly(connectionProvider, conn);
+        }
+    }
+
+    /**
+     * Releases the Connection back to the provider, ignoring any release failure
+     * so it cannot mask the outcome of the invocation.
+     */
+    private static void releaseQuietly(ConnectionProvider provider, Connection conn) {
+        if (conn == null) {
+            return;
+        }
+        try {
+            provider.releaseConnection(conn);
+        } catch (SQLException ignored) {
+            // Connection release failed; nothing actionable here.
         }
     }
 

@@ -23,4 +23,11 @@ public class SpringConnectionProvider implements ConnectionProvider {
     public Connection getConnection() throws SQLException {
         return DataSourceUtils.getConnection(dataSource);
     }
+
+    @Override
+    public void releaseConnection(Connection connection) {
+        // Tx-aware: decrements the holder count inside a transaction, or
+        // physically closes the connection when none is bound to the thread.
+        DataSourceUtils.releaseConnection(connection, dataSource);
+    }
 }

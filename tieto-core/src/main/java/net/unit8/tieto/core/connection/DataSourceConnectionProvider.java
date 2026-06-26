@@ -28,4 +28,16 @@ public final class DataSourceConnectionProvider implements ConnectionProvider {
         }
         return dataSource.getConnection();
     }
+
+    @Override
+    public void releaseConnection(Connection connection) throws SQLException {
+        if (connection == null) {
+            return;
+        }
+        // A transaction-bound connection is owned by TransactionContext; leave it open.
+        if (connection == TransactionContext.current()) {
+            return;
+        }
+        connection.close();
+    }
 }

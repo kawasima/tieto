@@ -20,4 +20,20 @@ public interface ConnectionProvider {
      * @throws SQLException if a connection cannot be obtained
      */
     Connection getConnection() throws SQLException;
+
+    /**
+     * Releases a Connection previously obtained from {@link #getConnection()}.
+     *
+     * <p>The default closes the Connection, which suits providers that hand out
+     * a fresh Connection per call. Providers that may return a Connection owned
+     * by an enclosing transaction must override this to avoid closing it.</p>
+     *
+     * @param connection the Connection to release; may be {@code null}
+     * @throws SQLException if the Connection cannot be released
+     */
+    default void releaseConnection(Connection connection) throws SQLException {
+        if (connection != null) {
+            connection.close();
+        }
+    }
 }
