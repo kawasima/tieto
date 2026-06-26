@@ -11,6 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -21,7 +22,7 @@ import java.util.regex.Pattern;
  * is read from stdout. This allows reuse of the user's existing CLI
  * authentication without managing API keys.</p>
  */
-public class CliAiProvider implements AiProvider {
+public final class CliAiProvider implements AiProvider {
 
     private static final Pattern FUNCTION_NAME_PATTERN =
             Pattern.compile("CREATE\\s+OR\\s+REPLACE\\s+FUNCTION\\s+(\\w+)", Pattern.CASE_INSENSITIVE);
@@ -43,7 +44,13 @@ public class CliAiProvider implements AiProvider {
         // stdin, stdout and stderr are pumped on separate threads: a single-threaded
         // read-then-read would deadlock if the child fills the stderr pipe while we
         // block reading stdout (or fills stdout while we block writing a large prompt).
-        ExecutorService pool = Executors.newFixedThreadPool(3);
+        // Daemon threads so a reader blocked in a native read (e.g. a backgrounded
+        // grandchild keeping the pipe open) can never keep the JVM from exiting.
+        ExecutorService pool = Executors.newFixedThreadPool(3, runnable -> {
+            Thread t = new Thread(runnable, "tieto-cli-io");
+            t.setDaemon(true);
+            return t;
+        });
         Process process = null;
         try {
             process = new ProcessBuilder(command).start();
@@ -62,15 +69,28 @@ public class CliAiProvider implements AiProvider {
             Future<byte[]> stderr = pool.submit(() -> started.getErrorStream().readAllBytes());
 
             if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
+                process.descendants().forEach(ProcessHandle::destroyForcibly);
                 process.destroyForcibly();
                 throw new GeneratorException(
                         "CLI command timed out after " + timeoutSeconds + " seconds: "
                                 + String.join(" ", command));
             }
 
-            // The process has exited, so both pipes are at EOF and these complete promptly.
-            String output = new String(stdout.get(), StandardCharsets.UTF_8);
-            String errorOutput = new String(stderr.get(), StandardCharsets.UTF_8);
+            // The process has exited; the pipes are normally at EOF so these complete
+            // at once. They are still bounded by the timeout in case a backgrounded
+            // grandchild inherited the pipe and is holding it open.
+            String output;
+            String errorOutput;
+            try {
+                output = new String(stdout.get(timeoutSeconds, TimeUnit.SECONDS), StandardCharsets.UTF_8);
+                errorOutput = new String(stderr.get(timeoutSeconds, TimeUnit.SECONDS), StandardCharsets.UTF_8);
+            } catch (TimeoutException e) {
+                process.descendants().forEach(ProcessHandle::destroyForcibly);
+                throw new GeneratorException(
+                        "CLI command exited but its output stream did not close within "
+                                + timeoutSeconds + " seconds (a background child may be holding it): "
+                                + String.join(" ", command));
+            }
 
             int exitCode = process.exitValue();
             if (exitCode != 0) {

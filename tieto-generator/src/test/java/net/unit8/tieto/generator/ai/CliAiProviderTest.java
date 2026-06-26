@@ -46,6 +46,18 @@ class CliAiProviderTest {
     }
 
     @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void doesNotHangWhenABackgroundChildHoldsTheOutputPipe() {
+        // sh exits immediately, but the backgrounded sleep inherits and holds stdout,
+        // so readAllBytes never sees EOF. The bounded get must fail instead of hanging.
+        var provider = new CliAiProvider(
+                List.of("sh", "-c", "sleep 8 & echo 'CREATE OR REPLACE FUNCTION foo_v1()'"), 2);
+        assertThatThrownBy(() -> provider.generateFunction("a prompt"))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("did not close");
+    }
+
+    @Test
     void reportsANonZeroExitWithStderr() {
         var provider = sh("echo 'boom' 1>&2; exit 3");
         assertThatThrownBy(() -> provider.generateFunction("a prompt"))

@@ -38,6 +38,12 @@ class CommandTokenizerTest {
     }
 
     @Test
+    void handlesBackslashEscapes() {
+        assertThat(CommandTokenizer.tokenize("claude --print don\\'t be terse"))
+                .containsExactly("claude", "--print", "don't", "be", "terse");
+    }
+
+    @Test
     void rejectsAnUnbalancedQuote() {
         assertThatThrownBy(() -> CommandTokenizer.tokenize("claude --print 'oops"))
                 .isInstanceOf(GeneratorException.class)

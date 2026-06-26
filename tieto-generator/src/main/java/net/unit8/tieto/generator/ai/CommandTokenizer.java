@@ -23,7 +23,12 @@ final class CommandTokenizer {
 
         while (i < n) {
             char c = command.charAt(i);
-            if (c == '\'' || c == '"') {
+            if (c == '\\' && i + 1 < n) {
+                // Backslash escapes the next character (e.g. don\'t, a\ b).
+                current.append(command.charAt(i + 1));
+                inToken = true;
+                i += 2;
+            } else if (c == '\'' || c == '"') {
                 inToken = true;
                 i++;
                 while (i < n && command.charAt(i) != c) {
