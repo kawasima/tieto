@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -76,7 +77,32 @@ class ConventionMapperTest {
         assertThat(result).isEqualTo(entity);
     }
 
+    @Test
+    void roundTrip_optionalFieldPresent() {
+        DomainMapper<ProfileEntity> mapper = conventionMapper.forType(ProfileEntity.class);
+        var profile = new ProfileEntity(1L, Optional.of("ace"));
+
+        String json = mapper.toJson(profile);
+
+        // Optional must unwrap to the value, not serialize as a bean.
+        assertThat(json).contains("\"nickname\":\"ace\"");
+        assertThat(mapper.fromJson(json, ProfileEntity.class)).isEqualTo(profile);
+    }
+
+    @Test
+    void roundTrip_optionalFieldEmpty() {
+        DomainMapper<ProfileEntity> mapper = conventionMapper.forType(ProfileEntity.class);
+        var profile = new ProfileEntity(1L, Optional.empty());
+
+        String json = mapper.toJson(profile);
+        ProfileEntity result = mapper.fromJson(json, ProfileEntity.class);
+
+        assertThat(result).isEqualTo(profile);
+        assertThat(result.nickname()).isEmpty();
+    }
+
     // Test types
+    record ProfileEntity(Long id, Optional<String> nickname) {}
     record SimpleOrder(Long id, String customerId, String status) {}
     record OrderLine(String productId, int quantity, BigDecimal unitPrice) {}
     record OrderWithLines(Long id, String customerId, List<OrderLine> lines) {}

@@ -63,7 +63,13 @@ public sealed interface ReturnTypeHandler {
                         "Expected non-null result for type " + type.getName());
             }
             DomainMapper mapper = registry.resolve(type);
-            return mapper.fromJson(json, type);
+            Object result = mapper.fromJson(json, type);
+            if (rs.next()) {
+                throw new FunctionCallException(
+                        "Expected a single result but the function returned more than one for type "
+                                + type.getName());
+            }
+            return result;
         }
     }
 
@@ -79,11 +85,14 @@ public sealed interface ReturnTypeHandler {
                 return Optional.empty();
             }
             String json = rs.getString(1);
-            if (json == null) {
-                return Optional.empty();
-            }
             DomainMapper mapper = registry.resolve(elementType);
-            return Optional.of(mapper.fromJson(json, elementType));
+            Object value = json == null ? null : mapper.fromJson(json, elementType);
+            if (rs.next()) {
+                throw new FunctionCallException(
+                        "Expected at most one result but the function returned more than one for type "
+                                + elementType.getName());
+            }
+            return Optional.ofNullable(value);
         }
     }
 
@@ -112,13 +121,38 @@ public sealed interface ReturnTypeHandler {
             Type arg = pt.getActualTypeArguments()[0];
 
             if (List.class.isAssignableFrom(raw)) {
-                return new ListHandler((Class<?>) arg);
+                return new ListHandler(requireConcreteClass(arg, method));
             }
             if (Optional.class.isAssignableFrom(raw)) {
-                return new OptionalHandler((Class<?>) arg);
+                return new OptionalHandler(requireConcreteClass(arg, method));
             }
+            throw unsupportedReturnType(method);
         }
 
-        return new SingleHandler((Class<?>) returnType);
+        if (returnType instanceof Class<?> concrete) {
+            return new SingleHandler(concrete);
+        }
+
+        throw unsupportedReturnType(method);
+    }
+
+    /**
+     * Extracts a concrete element class from a {@code List}/{@code Optional} type
+     * argument, rejecting nested generics ({@code List<Optional<X>>}) and wildcards
+     * ({@code List<? extends X>}) with a clear message rather than a ClassCastException.
+     */
+    private static Class<?> requireConcreteClass(Type arg, Method method) {
+        if (arg instanceof Class<?> c) {
+            return c;
+        }
+        throw unsupportedReturnType(method);
+    }
+
+    private static FunctionCallException unsupportedReturnType(Method method) {
+        return new FunctionCallException(
+                "Unsupported return type " + method.getGenericReturnType().getTypeName()
+                        + " on " + method.getDeclaringClass().getSimpleName() + "." + method.getName()
+                        + ": tieto supports void, T, Optional<T> and List<T> where T is a concrete"
+                        + " class (no nested generics or wildcards).");
     }
 }

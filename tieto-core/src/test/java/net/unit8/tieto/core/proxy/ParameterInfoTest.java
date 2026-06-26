@@ -1,12 +1,15 @@
 package net.unit8.tieto.core.proxy;
 
+import net.unit8.tieto.core.exception.FunctionCallException;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ParameterInfoTest {
 
@@ -70,6 +73,38 @@ class ParameterInfoTest {
         assertThat(params.getFirst().isDomainObject()).isFalse();
     }
 
+    @Test
+    void from_unwrapsOptionalOfSimpleTypeToItsElement() throws NoSuchMethodException {
+        var method = TestRepo.class.getMethod("findByOptionalName", Optional.class);
+        ParameterInfo p = ParameterInfo.from(method).getFirst();
+        assertThat(p.isOptional()).isTrue();
+        assertThat(p.type()).isEqualTo(String.class);
+        assertThat(p.isDomainObject()).isFalse();
+    }
+
+    @Test
+    void from_unwrapsOptionalOfDomainTypeToItsElement() throws NoSuchMethodException {
+        var method = TestRepo.class.getMethod("findMatching", Optional.class);
+        ParameterInfo p = ParameterInfo.from(method).getFirst();
+        assertThat(p.isOptional()).isTrue();
+        assertThat(p.type()).isEqualTo(Order.class);
+        assertThat(p.isDomainObject()).isTrue();
+    }
+
+    @Test
+    void from_marksNonOptionalParametersAsNotOptional() throws NoSuchMethodException {
+        var method = TestRepo.class.getMethod("findByName", String.class);
+        assertThat(ParameterInfo.from(method).getFirst().isOptional()).isFalse();
+    }
+
+    @Test
+    void from_rejectsAWildcardOptionalParameterWithAClearError() throws NoSuchMethodException {
+        var method = TestRepo.class.getMethod("findByWildcard", Optional.class);
+        assertThatThrownBy(() -> ParameterInfo.from(method))
+                .isInstanceOf(FunctionCallException.class)
+                .hasMessageContaining("Unsupported parameter type");
+    }
+
     // Test types
     record Order(Long id, String name) {}
     enum Status { ACTIVE, INACTIVE }
@@ -82,5 +117,8 @@ class ParameterInfoTest {
         void findByDate(LocalDateTime date);
         void save(Order order);
         void updateStatus(Long id, Status status);
+        void findByOptionalName(Optional<String> name);
+        void findMatching(Optional<Order> example);
+        void findByWildcard(Optional<?> any);
     }
 }
