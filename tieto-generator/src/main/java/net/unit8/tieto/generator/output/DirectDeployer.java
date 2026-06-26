@@ -25,9 +25,12 @@ public class DirectDeployer {
      * @param functions the generated functions to deploy
      */
     public void deploy(Connection conn, List<GeneratedFunction> functions) {
-        boolean previousAutoCommit;
         try {
-            previousAutoCommit = conn.getAutoCommit();
+            if (!conn.getAutoCommit()) {
+                throw new GeneratorException(
+                        "deploy requires a connection with no transaction in progress"
+                                + " (autoCommit was false); it manages its own transaction");
+            }
             conn.setAutoCommit(false);
         } catch (SQLException e) {
             throw new GeneratorException(
@@ -43,7 +46,7 @@ public class DirectDeployer {
             throw new GeneratorException(
                     "Failed to deploy function: " + e.getMessage(), e);
         } finally {
-            restoreAutoCommit(conn, previousAutoCommit);
+            restoreAutoCommit(conn);
         }
     }
 
@@ -55,9 +58,9 @@ public class DirectDeployer {
         }
     }
 
-    private static void restoreAutoCommit(Connection conn, boolean previousAutoCommit) {
+    private static void restoreAutoCommit(Connection conn) {
         try {
-            conn.setAutoCommit(previousAutoCommit);
+            conn.setAutoCommit(true);
         } catch (SQLException e) {
             // Connection is about to be closed by the caller; ignore.
         }

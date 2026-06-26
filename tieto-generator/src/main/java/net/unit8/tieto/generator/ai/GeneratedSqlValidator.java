@@ -116,10 +116,12 @@ public final class GeneratedSqlValidator {
             char c = sql.charAt(i);
 
             if (c == '-' && i + 1 < n && sql.charAt(i + 1) == '-') {
+                current.append(' ');   // a comment separates tokens
                 i = endOfLine(sql, i);
                 continue;
             }
             if (c == '/' && i + 1 < n && sql.charAt(i + 1) == '*') {
+                current.append(' ');   // a comment separates tokens
                 i = endOfBlockComment(sql, i);
                 continue;
             }
@@ -169,11 +171,13 @@ public final class GeneratedSqlValidator {
                     out.append('\'');   // escaped quote inside the literal
                     i++;
                 } else {
-                    break;
+                    return i;   // closed
                 }
             }
         }
-        return i;
+        throw new GeneratorException(
+                "Generated SQL has an unterminated string literal"
+                        + " — the model output is likely truncated");
     }
 
     /**
@@ -200,7 +204,12 @@ public final class GeneratedSqlValidator {
         }
         String tag = sql.substring(i, j + 1);   // includes both '$'
         int close = sql.indexOf(tag, j + 1);
-        return close < 0 ? n : close + tag.length();
+        if (close < 0) {
+            throw new GeneratorException(
+                    "Generated SQL has an unterminated dollar-quoted string ("
+                            + tag + ") — the model output is likely truncated");
+        }
+        return close + tag.length();
     }
 
     private static void addIfNotBlank(List<String> statements, StringBuilder current) {

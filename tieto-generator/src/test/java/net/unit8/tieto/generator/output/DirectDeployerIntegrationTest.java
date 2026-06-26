@@ -56,6 +56,18 @@ class DirectDeployerIntegrationTest {
                 .isFalse();
     }
 
+    @Test
+    void failsFastWhenTheConnectionAlreadyHasATransactionInProgress() throws SQLException {
+        try (Connection conn = newConnection()) {
+            conn.setAutoCommit(false);
+            assertThatThrownBy(() -> new DirectDeployer().deploy(conn, List.of(fn("tx_v1",
+                    "CREATE OR REPLACE FUNCTION tx_v1() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$"))))
+                    .isInstanceOf(GeneratorException.class)
+                    .hasMessageContaining("autoCommit");
+        }
+        assertThat(functionExists("tx_v1")).isFalse();
+    }
+
     private static Connection newConnection() throws SQLException {
         return DriverManager.getConnection(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());

@@ -161,4 +161,24 @@ class GeneratedSqlValidatorTest {
         assertThatCode(() -> validator.validate(sql, "order_repository_find_by_id_v1", false))
                 .doesNotThrowAnyException();
     }
+
+    @Test
+    void toleratesACommentBetweenTokens() {
+        String sql = "CREATE OR REPLACE FUNCTION/* name */order_repository_find_by_id_v1(p_id bigint)"
+                + " RETURNS jsonb LANGUAGE sql AS $$ SELECT to_jsonb(p_id) $$";
+        assertThatCode(() -> validator.validate(sql, "order_repository_find_by_id_v1", false))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void rejectsAnUnterminatedDollarQuotedBodyAsTruncated() {
+        // A response cut off mid-body has no closing $$ — reject it as truncated
+        // rather than letting the incomplete SQL reach the database.
+        String sql = """
+                CREATE OR REPLACE FUNCTION order_repository_find_by_id_v1(p_id bigint)
+                RETURNS jsonb LANGUAGE sql AS $$ SELECT to_jsonb(p_id""";
+        assertThatThrownBy(() -> validator.validate(sql, "order_repository_find_by_id_v1", false))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("truncated");
+    }
 }
