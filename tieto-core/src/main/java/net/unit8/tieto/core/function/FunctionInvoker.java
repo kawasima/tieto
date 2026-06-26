@@ -67,8 +67,9 @@ public final class FunctionInvoker {
         }
         try {
             provider.releaseConnection(conn);
-        } catch (SQLException ignored) {
-            // Connection release failed; nothing actionable here.
+        } catch (SQLException | RuntimeException ignored) {
+            // Connection release failed; nothing actionable here, and it must
+            // not mask the outcome of the invocation. Errors still propagate.
         }
     }
 

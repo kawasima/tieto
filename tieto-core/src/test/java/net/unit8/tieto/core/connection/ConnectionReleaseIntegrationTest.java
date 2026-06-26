@@ -88,9 +88,11 @@ class ConnectionReleaseIntegrationTest {
                     .isEqualTo(1);
 
             TransactionContext.commit();
-        } catch (RuntimeException e) {
+        } catch (Throwable t) {
+            // Roll back on any failure (including AssertionError) so the
+            // transaction is not left bound to this thread for later tests.
             TransactionContext.rollback();
-            throw e;
+            throw t;
         }
 
         assertThat(dataSource.currentlyOpen())
