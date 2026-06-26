@@ -1,6 +1,7 @@
 package net.unit8.tieto.example.domain;
 
 import net.unit8.tieto.core.annotation.FunctionVersion;
+import net.unit8.tieto.core.annotation.TietoRepository;
 
 import java.util.List;
 import java.util.Optional;
@@ -9,6 +10,7 @@ import java.util.Optional;
  * Repository for Order aggregates.
  * tieto will proxy this interface and delegate to PostgreSQL functions.
  */
+@TietoRepository
 public interface OrderRepository {
 
     /**

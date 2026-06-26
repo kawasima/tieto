@@ -139,9 +139,19 @@ Optional<Order> order = repo.findById(1L);
 
 **Spring Boot:**
 
+Mark each repository interface with `@TietoRepository` so package scanning registers
+it (and only it — unrelated interfaces in the same package are left alone):
+
+```java
+import net.unit8.tieto.core.annotation.TietoRepository;
+
+@TietoRepository
+public interface OrderRepository { ... }
+```
+
 ```java
 @SpringBootApplication
-@EnableTietoRepositories(basePackages = "com.example.domain")
+@EnableTietoRepositories("com.example.domain")
 public class MyApp { ... }
 
 @Service
@@ -155,7 +165,17 @@ public class OrderService {
 }
 ```
 
-`createRepository()` (standalone) or `@EnableTietoRepositories` (Spring) creates a JDK Dynamic Proxy. Each method call translates to a PostgreSQL function invocation like `SELECT * FROM order_repository_find_by_id_v1(?)`.
+`@EnableTietoRepositories` accepts `value`/`basePackages` (string packages) or
+`basePackageClasses` (type-safe); with no package given it scans the annotated
+class's own package. Alternatively, skip the annotation and list packages in
+configuration:
+
+```yaml
+tieto:
+  base-packages: com.example.domain
+```
+
+`createRepository()` (standalone) or scanning (Spring) creates a JDK Dynamic Proxy. Each method call translates to a PostgreSQL function invocation like `SELECT * FROM order_repository_find_by_id_v1(?)`. Repositories registered explicitly via `createRepository()` do not need `@TietoRepository`.
 
 ## Composable Specifications
 

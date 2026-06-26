@@ -1,21 +1,23 @@
 package net.unit8.tieto.spring;
 
-import org.springframework.beans.factory.config.BeanDefinition;
-import org.springframework.beans.factory.support.AbstractBeanDefinition;
-import org.springframework.beans.factory.support.BeanDefinitionBuilder;
+import net.unit8.tieto.core.annotation.TietoRepository;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
-import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.context.annotation.ImportBeanDefinitionRegistrar;
+import org.springframework.core.annotation.MergedAnnotation;
 import org.springframework.core.type.AnnotationMetadata;
+import org.springframework.util.ClassUtils;
 
-import java.util.Map;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 /**
- * Scans for Repository interfaces in the specified base packages and
- * registers a {@link TietoRepositoryFactoryBean} for each one.
+ * Registers a {@link TietoRepositoryFactoryBean} for every {@link TietoRepository}-annotated
+ * interface found in the base packages declared by {@link EnableTietoRepositories}.
  *
- * <p>A Repository interface is detected if it is an interface (non-class).
- * All interfaces found in the scanned packages are registered.</p>
+ * <p>Base packages are taken from {@code value}/{@code basePackages} and from the
+ * packages of {@code basePackageClasses}; when none are given, the package of the
+ * annotated configuration class is scanned.</p>
  */
 public class TietoRepositoryRegistrar implements ImportBeanDefinitionRegistrar {
 
@@ -24,43 +26,25 @@ public class TietoRepositoryRegistrar implements ImportBeanDefinitionRegistrar {
             AnnotationMetadata importingClassMetadata,
             BeanDefinitionRegistry registry) {
 
-        Map<String, Object> attrs = importingClassMetadata
-                .getAnnotationAttributes(EnableTietoRepositories.class.getName());
-
-        if (attrs == null) return;
-
-        String[] basePackages = (String[]) attrs.get("basePackages");
-        if (basePackages == null || basePackages.length == 0) return;
-
-        var scanner = new ClassPathScanningCandidateComponentProvider(false) {
-            @Override
-            protected boolean isCandidateComponent(
-                    org.springframework.beans.factory.annotation.AnnotatedBeanDefinition beanDefinition) {
-                // Allow interfaces (default implementation requires concrete class)
-                return beanDefinition.getMetadata().isInterface();
-            }
-        };
-        // Include all interfaces — we register every interface found in the packages
-        scanner.addIncludeFilter((metadataReader, metadataReaderFactory) ->
-                metadataReader.getClassMetadata().isInterface());
-
-        for (String basePackage : basePackages) {
-            for (BeanDefinition candidate : scanner.findCandidateComponents(basePackage)) {
-                String beanClassName = candidate.getBeanClassName();
-                if (beanClassName == null) continue;
-
-                BeanDefinition factoryBeanDef = BeanDefinitionBuilder
-                        .genericBeanDefinition(TietoRepositoryFactoryBean.class)
-                        .addConstructorArgValue(beanClassName)
-                        .setAutowireMode(AbstractBeanDefinition.AUTOWIRE_BY_TYPE)
-                        .getBeanDefinition();
-
-                // Use simple class name with first letter lowercase as bean name
-                String simpleName = beanClassName.substring(beanClassName.lastIndexOf('.') + 1);
-                String beanName = Character.toLowerCase(simpleName.charAt(0)) + simpleName.substring(1);
-
-                registry.registerBeanDefinition(beanName, factoryBeanDef);
-            }
+        MergedAnnotation<EnableTietoRepositories> annotation = importingClassMetadata
+                .getAnnotations()
+                .get(EnableTietoRepositories.class);
+        if (!annotation.isPresent()) {
+            return;
         }
+
+        Set<String> basePackages = new LinkedHashSet<>();
+        Collections.addAll(basePackages, annotation.getStringArray("basePackages"));
+        for (Class<?> markerClass : annotation.getClassArray("basePackageClasses")) {
+            basePackages.add(markerClass.getPackageName());
+        }
+        basePackages.removeIf(pkg -> pkg == null || pkg.isBlank());
+
+        if (basePackages.isEmpty()) {
+            // Mirror @ComponentScan: default to the package of the annotated class.
+            basePackages.add(ClassUtils.getPackageName(importingClassMetadata.getClassName()));
+        }
+
+        TietoRepositoryScanner.register(registry, basePackages);
     }
 }
