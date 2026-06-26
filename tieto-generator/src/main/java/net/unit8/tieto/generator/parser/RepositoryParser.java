@@ -1,6 +1,8 @@
 package net.unit8.tieto.generator.parser;
 
-import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParseResult;
+import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
@@ -17,6 +19,10 @@ import java.util.Optional;
  */
 public class RepositoryParser {
 
+    /** Configured for Java 21 so records and sealed types parse correctly. */
+    static final JavaParser JAVA_PARSER = new JavaParser(
+            new ParserConfiguration().setLanguageLevel(ParserConfiguration.LanguageLevel.JAVA_21));
+
     /**
      * Parses a Repository interface from its source file.
      *
@@ -30,7 +36,9 @@ public class RepositoryParser {
 
         CompilationUnit cu;
         try {
-            cu = StaticJavaParser.parse(sourceFile);
+            ParseResult<CompilationUnit> result = JAVA_PARSER.parse(sourceFile);
+            cu = result.getResult().orElseThrow(() -> new GeneratorException(
+                    "Failed to parse source file: " + sourceFile + " " + result.getProblems()));
         } catch (IOException e) {
             throw new GeneratorException(
                     "Failed to parse source file: " + sourceFile, e);
@@ -42,14 +50,15 @@ public class RepositoryParser {
                 .orElseThrow(() -> new GeneratorException(
                         "Interface not found: " + fullyQualifiedName));
 
+        TypeResolver typeResolver = new TypeResolver(sourceDir);
         List<MethodSpec> methods = iface.getMethods().stream()
-                .map(this::toMethodSpec)
+                .map(md -> toMethodSpec(md, cu, typeResolver))
                 .toList();
 
         return new RepositorySpec(fullyQualifiedName, simpleName, methods);
     }
 
-    private MethodSpec toMethodSpec(MethodDeclaration md) {
+    private MethodSpec toMethodSpec(MethodDeclaration md, CompilationUnit cu, TypeResolver typeResolver) {
         String javadoc = md.getJavadoc()
                 .map(jd -> jd.getDescription().toText())
                 .orElse("");
@@ -57,7 +66,8 @@ public class RepositoryParser {
         List<ParameterSpec> params = md.getParameters().stream()
                 .map(p -> new ParameterSpec(
                         p.getNameAsString(),
-                        p.getTypeAsString()))
+                        p.getTypeAsString(),
+                        typeResolver.resolve(p.getTypeAsString(), cu)))
                 .toList();
 
         int version = extractVersion(md);

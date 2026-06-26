@@ -5,6 +5,7 @@ import net.unit8.tieto.core.connection.TransactionContext;
 import net.unit8.tieto.example.domain.Order;
 import net.unit8.tieto.example.domain.OrderLine;
 import net.unit8.tieto.example.domain.OrderRepository;
+import net.unit8.tieto.example.domain.OrderSpec;
 import net.unit8.tieto.example.domain.OrderStatus;
 import org.postgresql.ds.PGSimpleDataSource;
 
@@ -104,8 +105,38 @@ public class ExampleApp {
         Optional<Order> notFound = orderRepo.findById(9999L);
         System.out.println("  Result: " + (notFound.isEmpty() ? "Optional.empty" : notFound));
 
+        // 8. Composable Specification queries (findBy)
+        System.out.println("\n--- findBy: composable Specifications ---");
+
+        runSpec(orderRepo, "HighValue(>=100)",
+                new OrderSpec.HighValue(new BigDecimal("100")));
+
+        runSpec(orderRepo, "And[ForCustomer(CUST-001), HasStatus(CONFIRMED)]",
+                new OrderSpec.And(List.of(
+                        new OrderSpec.ForCustomer("CUST-001"),
+                        new OrderSpec.HasStatus(OrderStatus.CONFIRMED))));
+
+        runSpec(orderRepo, "And[CreatedAfter(2024-06-05), Not(ForCustomer(CUST-002))]",
+                new OrderSpec.And(List.of(
+                        new OrderSpec.CreatedAfter(LocalDateTime.of(2024, 6, 5, 0, 0)),
+                        new OrderSpec.Not(new OrderSpec.ForCustomer("CUST-002")))));
+
+        runSpec(orderRepo, "Or[HasStatus(SHIPPED), HighValue(>=130)]",
+                new OrderSpec.Or(List.of(
+                        new OrderSpec.HasStatus(OrderStatus.SHIPPED),
+                        new OrderSpec.HighValue(new BigDecimal("130")))));
+
         System.out.println("\n=== All operations completed successfully ===");
         System.exit(0);
+    }
+
+    private static void runSpec(OrderRepository repo, String label, OrderSpec spec) {
+        List<Order> results = repo.findBy(spec);
+        String ids = results.stream()
+                .map(o -> "#" + o.id() + "(" + o.customerId() + "," + o.status() + ")")
+                .reduce((a, b) -> a + ", " + b)
+                .orElse("(none)");
+        System.out.println("  " + label + " -> " + results.size() + ": " + ids);
     }
 
     private static DataSource createDataSource() {

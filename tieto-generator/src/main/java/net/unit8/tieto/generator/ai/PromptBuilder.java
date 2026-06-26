@@ -1,8 +1,10 @@
 package net.unit8.tieto.generator.ai;
 
+import net.unit8.tieto.generator.parser.ComponentDef;
 import net.unit8.tieto.generator.parser.MethodSpec;
 import net.unit8.tieto.generator.parser.ParameterSpec;
 import net.unit8.tieto.generator.parser.RepositorySpec;
+import net.unit8.tieto.generator.parser.TypeDef;
 import net.unit8.tieto.generator.schema.ColumnInfo;
 import net.unit8.tieto.generator.schema.ForeignKeyInfo;
 import net.unit8.tieto.generator.schema.TableInfo;
@@ -19,6 +21,7 @@ public class PromptBuilder {
      * Builds a prompt for generating a single PostgreSQL function.
      */
     public String build(RepositorySpec repo, MethodSpec method, List<TableInfo> schema) {
+        String functionName = resolveFunctionName(repo, method);
         return """
                 You are a PostgreSQL expert. Generate a PostgreSQL function based on the \
                 following specification.
@@ -33,7 +36,7 @@ public class PromptBuilder {
 
                 ## Method Specification (from Javadoc)
                 %s
-
+                %s
                 ## Database Schema
                 %s
 
@@ -52,17 +55,19 @@ public class PromptBuilder {
                 - Use CREATE OR REPLACE FUNCTION.
                 - Language: plpgsql
                 - Include appropriate error handling with RAISE EXCEPTION where needed.
-
+                %s
                 ## Output Format
-                Return ONLY the complete SQL statement. No markdown fences, no explanation.
+                Return ONLY the complete SQL statement(s). No markdown fences, no explanation.
                 """.formatted(
                 repo.fullyQualifiedName(),
                 method.name(),
                 method.returnType(),
                 formatParameters(method.parameters()),
                 method.javadoc().isEmpty() ? "(no specification provided)" : method.javadoc(),
+                formatParameterTypes(method.parameters()),
                 formatSchema(schema),
-                resolveFunctionName(repo, method)
+                functionName,
+                specRules(method, functionName)
         );
     }
 
@@ -71,6 +76,83 @@ public class PromptBuilder {
         return parameters.stream()
                 .map(p -> p.name() + ": " + p.type())
                 .collect(Collectors.joining(", "));
+    }
+
+    /**
+     * Describes resolved domain parameter types. Sealed Specification hierarchies
+     * get a full tree description so the AI can derive conditions from the model.
+     */
+    private String formatParameterTypes(List<ParameterSpec> parameters) {
+        var sb = new StringBuilder();
+        for (ParameterSpec p : parameters) {
+            TypeDef def = p.typeDef();
+            if (def == null) continue;
+            if (def.sealed()) {
+                sb.append("\n## Specification Parameter: ").append(p.name())
+                        .append(" (").append(def.simpleName()).append(")\n");
+                sb.append("This parameter is a COMPOSABLE Specification. It arrives as a single ")
+                        .append("JSONB argument encoding a condition tree. Every node is a JSON object ")
+                        .append("with a \"kind\" discriminator (camelCase of the type name); the node's ")
+                        .append("other keys are its fields (camelCase).\n");
+                if (!def.javadoc().isBlank()) {
+                    sb.append("Description: ").append(def.javadoc().strip()).append('\n');
+                }
+                sb.append("Node kinds:\n");
+                for (TypeDef sub : def.subtypes()) {
+                    sb.append("  - kind=\"").append(sub.kind()).append("\"");
+                    sb.append(" fields: ").append(formatComponents(sub.components()));
+                    if (!sub.javadoc().isBlank()) {
+                        sb.append("  // ").append(sub.javadoc().strip().replaceAll("\\s+", " "));
+                    }
+                    sb.append('\n');
+                }
+            } else {
+                sb.append("\n## Parameter Type: ").append(p.name())
+                        .append(" (").append(def.simpleName()).append(")\n");
+                sb.append("Fields: ").append(formatComponents(def.components())).append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    private String formatComponents(List<ComponentDef> components) {
+        if (components.isEmpty()) return "(none)";
+        return components.stream()
+                .map(c -> c.name() + ": " + c.type())
+                .collect(Collectors.joining(", "));
+    }
+
+    /**
+     * Extra generation rules when a method takes a composable Specification.
+     */
+    private String specRules(MethodSpec method, String functionName) {
+        boolean hasSpec = method.parameters().stream()
+                .anyMatch(p -> p.typeDef() != null && p.typeDef().sealed());
+        if (!hasSpec) {
+            return "";
+        }
+        return """
+
+                ## Specification Rules (composable query conditions)
+                The Specification arrives as ONE jsonb argument holding a condition tree.
+                Generate TWO functions:
+                1. The main function %1$s(...) that builds the WHERE clause from the spec
+                   tree and returns each matching aggregate as JSONB (same nested shape as
+                   the other functions for this entity).
+                2. A helper function %1$s_spec_to_sql(spec jsonb) RETURNS text that
+                   recursively translates one spec node into a boolean SQL expression.
+                Translation rules for the helper:
+                - kind "and": AND-join %1$s_spec_to_sql over each element of spec->'specs',
+                  wrapped in parentheses. An empty list yields TRUE.
+                - kind "or": OR-join over spec->'specs', wrapped in parentheses. Empty yields FALSE.
+                - kind "not": 'NOT (' || %1$s_spec_to_sql(spec->'spec') || ')'.
+                - any other kind: a LEAF predicate. Derive its SQL condition from the kind
+                  name, its fields, and the schema (map the domain predicate to the right
+                  column(s) or aggregate expression). Embed field values safely with
+                  quote_literal()/format() to avoid SQL injection.
+                - A NULL or absent spec means "no condition" (TRUE).
+                Output the MAIN function FIRST, then the helper function.
+                """.formatted(functionName);
     }
 
     private String formatSchema(List<TableInfo> schema) {
