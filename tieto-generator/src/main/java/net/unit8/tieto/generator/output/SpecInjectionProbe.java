@@ -8,6 +8,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -24,38 +25,61 @@ import java.util.Set;
  * <p>Unlike a static text scan, this catches concatenation regardless of how the
  * value was extracted ({@code ->>}, {@code #>>}, {@code jsonb_extract_path_text},
  * a cast, an intermediate variable …), because it tests behavior, not syntax.</p>
+ *
+ * <p>Scope and limits:</p>
+ * <ul>
+ *   <li>One probe is produced per <em>String-typed</em> leaf field, each wrapped
+ *       in an {@code and} so the recursion/path-threading is exercised too.</li>
+ *   <li>Numeric/enum-only leaves are not probed: a non-numeric probe value fails
+ *       the {@code ::numeric} cast even when correctly bound, so {@code '} cannot
+ *       tell binding from concatenation there. Those leaves rely on the cast (an
+ *       attacker's non-numeric value also fails it) and the static check.</li>
+ *   <li>A safe leaf that <em>parses</em> the value (e.g. {@code to_tsquery},
+ *       {@code ::tsquery}, a regex) can error on a bound {@code '} and be wrongly
+ *       rejected; such leaves are uncommon for column predicates.</li>
+ * </ul>
  */
 public final class SpecInjectionProbe {
 
     private static final Set<String> COMPOSITE_KINDS = Set.of("and", "or", "not");
 
     /**
-     * Builds a probe spec JSON for a leaf kind that has a String field, with that
-     * field set to a single quote. Returns null if the hierarchy has no string-typed
-     * leaf to probe (in which case the caller falls back to the static check).
+     * Builds a probe spec for every String-typed leaf field in the hierarchy, each
+     * with that field set to a single quote and (when the hierarchy has an {@code and})
+     * wrapped in an {@code and} so the composite path-threading runs. Empty if there is
+     * no String-typed leaf to probe.
      */
-    public static String probeSpecFor(TypeDef specType) {
-        return findStringLeafProbe(specType.subtypes());
+    public static List<String> probeSpecsFor(TypeDef specType) {
+        boolean hasAnd = hasKind(specType.subtypes(), "and");
+        List<String> probes = new ArrayList<>();
+        collectStringLeafProbes(specType.subtypes(), hasAnd, probes);
+        return probes;
     }
 
-    private static String findStringLeafProbe(List<TypeDef> subtypes) {
+    private static void collectStringLeafProbes(List<TypeDef> subtypes, boolean hasAnd, List<String> out) {
         for (TypeDef sub : subtypes) {
             String kind = sub.kind();
             if (kind != null && !COMPOSITE_KINDS.contains(kind)) {
                 for (ComponentDef component : sub.components()) {
                     if (isStringType(component.type())) {
-                        return "{\"kind\":\"" + kind + "\",\"" + component.name() + "\":\"'\"}";
+                        String leaf = "{\"kind\":\"" + kind + "\",\"" + component.name() + "\":\"'\"}";
+                        out.add(hasAnd ? "{\"kind\":\"and\",\"specs\":[" + leaf + "]}" : leaf);
                     }
                 }
             }
             if (!sub.subtypes().isEmpty()) {
-                String nested = findStringLeafProbe(sub.subtypes());
-                if (nested != null) {
-                    return nested;
-                }
+                collectStringLeafProbes(sub.subtypes(), hasAnd, out);
             }
         }
-        return null;
+    }
+
+    private static boolean hasKind(List<TypeDef> subtypes, String kind) {
+        for (TypeDef sub : subtypes) {
+            if (kind.equals(sub.kind()) || hasKind(sub.subtypes(), kind)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isStringType(String type) {
@@ -69,7 +93,7 @@ public final class SpecInjectionProbe {
      *
      * @param conn a connection in the same transaction the functions were deployed in
      * @param functionName the generated main function name
-     * @param probeSpecJson a probe spec from {@link #probeSpecFor}
+     * @param probeSpecJson a probe spec from {@link #probeSpecsFor}
      */
     public void verify(Connection conn, String functionName, String probeSpecJson) {
         String sql = "SELECT * FROM " + functionName + "(CAST(? AS jsonb))";

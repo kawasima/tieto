@@ -41,16 +41,21 @@ class SpecInjectionProbeTest {
     }
 
     @Test
-    void probeSpecForPicksAStringLeafAndSetsItToASingleQuote() {
+    void probeSpecsForProbesEveryStringLeafWrappedInAnAnd() {
         TypeDef spec = new TypeDef("OrderSpec", null, true, "", List.of(), List.of(
                 new TypeDef("And", "and", false, "", List.of(), List.of()),
                 new TypeDef("HighValue", "highValue", false, "",
                         List.of(new ComponentDef("min", "BigDecimal")), List.of()),
                 new TypeDef("ForCustomer", "forCustomer", false, "",
-                        List.of(new ComponentDef("customerId", "String")), List.of())));
+                        List.of(new ComponentDef("customerId", "String")), List.of()),
+                new TypeDef("ByName", "byName", false, "",
+                        List.of(new ComponentDef("name", "String")), List.of())));
 
-        assertThat(SpecInjectionProbe.probeSpecFor(spec))
-                .isEqualTo("{\"kind\":\"forCustomer\",\"customerId\":\"'\"}");
+        // One probe per String leaf (customerId, name); numeric 'min' is not probed;
+        // each is wrapped in an 'and' so the path-threading runs.
+        assertThat(SpecInjectionProbe.probeSpecsFor(spec)).containsExactlyInAnyOrder(
+                "{\"kind\":\"and\",\"specs\":[{\"kind\":\"forCustomer\",\"customerId\":\"'\"}]}",
+                "{\"kind\":\"and\",\"specs\":[{\"kind\":\"byName\",\"name\":\"'\"}]}");
     }
 
     @Test

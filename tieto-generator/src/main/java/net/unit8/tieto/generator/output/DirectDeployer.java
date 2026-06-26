@@ -11,20 +11,38 @@ import java.util.List;
 /**
  * Deploys generated SQL functions directly to a PostgreSQL database.
  */
-public class DirectDeployer {
+public final class DirectDeployer {
 
     /**
-     * Deploys all generated functions in a single transaction, so a failure
-     * partway through rolls back rather than leaving the database half-migrated.
+     * A check to run inside the deploy transaction after the functions are created
+     * but before commit (e.g. {@link SpecInjectionProbe}). Throwing rolls back the deploy.
+     */
+    @FunctionalInterface
+    public interface DeployVerification {
+        void verify(Connection conn);
+    }
+
+    /**
+     * Deploys all generated functions in a single transaction, with no post-deploy checks.
+     */
+    public void deploy(Connection conn, List<GeneratedFunction> functions) {
+        deploy(conn, functions, List.of());
+    }
+
+    /**
+     * Deploys all generated functions in a single transaction, runs each verification
+     * within that transaction, and commits only if every verification passes. A failure
+     * anywhere — a CREATE, a verification, or the commit — rolls the whole deploy back, so
+     * the database is never left half-migrated or with an unverified function.
      *
-     * <p>The connection is expected to own no pending work: this method takes
-     * over transaction control, committing on success and rolling back on
-     * failure. Do not pass a connection with an in-progress transaction.</p>
+     * <p>The connection must own no pending work: this method takes over transaction
+     * control. Do not pass a connection with an in-progress transaction.</p>
      *
      * @param conn the database connection (no transaction in progress)
      * @param functions the generated functions to deploy
+     * @param verifications checks to run before commit
      */
-    public void deploy(Connection conn, List<GeneratedFunction> functions) {
+    public void deploy(Connection conn, List<GeneratedFunction> functions, List<DeployVerification> verifications) {
         try {
             if (!conn.getAutoCommit()) {
                 throw new GeneratorException(
@@ -38,12 +56,15 @@ public class DirectDeployer {
         }
         try {
             executeAll(conn, functions);
+            for (DeployVerification verification : verifications) {
+                verification.verify(conn);
+            }
             conn.commit();
         } catch (SQLException e) {
             rollback(conn);
             throw new GeneratorException(
                     "Failed to commit deploy: " + e.getMessage(), e);
-        } catch (GeneratorException e) {
+        } catch (RuntimeException e) {
             rollback(conn);
             throw e;
         } finally {
@@ -51,15 +72,7 @@ public class DirectDeployer {
         }
     }
 
-    /**
-     * Executes the CREATE statements on the connection without managing the
-     * transaction. The caller owns commit/rollback — used when other work (e.g. an
-     * injection probe) must run in the same transaction before the deploy is committed.
-     *
-     * @param conn the database connection
-     * @param functions the generated functions to deploy
-     */
-    public void executeAll(Connection conn, List<GeneratedFunction> functions) {
+    private static void executeAll(Connection conn, List<GeneratedFunction> functions) {
         try (Statement stmt = conn.createStatement()) {
             for (GeneratedFunction func : functions) {
                 stmt.execute(func.sqlBody());

@@ -137,20 +137,11 @@ public class GenerateCommand implements Callable<Integer> {
 
         // 4. Output
         if ("deploy".equals(outputMode)) {
+            // Deploy and behaviorally probe each spec function in one transaction:
+            // commit only if every probe proves leaf values are bound, not concatenated.
+            List<DirectDeployer.DeployVerification> probes = injectionProbes(repoSpec, deployedSpecMethods);
             try (Connection conn = DriverManager.getConnection(dbUrl, dbUser, dbPassword)) {
-                conn.setAutoCommit(false);
-                try {
-                    new DirectDeployer().executeAll(conn, functions);
-                    // Behavioral injection probe before committing: prove each spec
-                    // function binds its leaf values rather than concatenating them.
-                    runInjectionProbes(conn, repoSpec, deployedSpecMethods);
-                    conn.commit();
-                } catch (RuntimeException e) {
-                    rollbackQuietly(conn);
-                    throw e;
-                } finally {
-                    conn.setAutoCommit(true);
-                }
+                new DirectDeployer().deploy(conn, functions, probes);
             }
             System.out.println("Deployed " + functions.size() + " functions to database");
         } else {
@@ -162,39 +153,37 @@ public class GenerateCommand implements Callable<Integer> {
     }
 
     /**
-     * Runs the behavioral injection probe on each freshly deployed spec function,
-     * within the deploy transaction (so a failure rolls back the deploy).
+     * Builds the behavioral injection probes for each freshly deployed spec function:
+     * one per String-typed leaf field. Run inside the deploy transaction, a failing
+     * probe rolls back the deploy.
      */
-    private void runInjectionProbes(Connection conn, RepositorySpec repoSpec, List<MethodSpec> specMethods) {
+    private List<DirectDeployer.DeployVerification> injectionProbes(
+            RepositorySpec repoSpec, List<MethodSpec> specMethods) {
         SpecInjectionProbe probe = new SpecInjectionProbe();
+        List<DirectDeployer.DeployVerification> probes = new ArrayList<>();
         for (MethodSpec method : specMethods) {
             String functionName = resolveFunctionName(repoSpec, method);
-            String probeSpec = SpecInjectionProbe.probeSpecFor(specTypeOf(method));
-            if (probeSpec == null) {
+            List<String> probeSpecs = SpecInjectionProbe.probeSpecsFor(specTypeOf(method));
+            if (probeSpecs.isEmpty()) {
                 System.out.println("  (no string-typed leaf to probe " + functionName
                         + "; relying on the static contract check)");
                 continue;
             }
-            System.out.println("Probing " + functionName + " for SQL injection...");
-            probe.verify(conn, functionName, probeSpec);
-            System.out.println("  -> injection probe passed");
+            for (String probeSpec : probeSpecs) {
+                probes.add(conn -> probe.verify(conn, functionName, probeSpec));
+            }
         }
+        return probes;
     }
 
+    // The same predicate as hasSpecParameter, so a method in deployedSpecMethods
+    // always has a sealed spec parameter and orElseThrow cannot fire.
     private static TypeDef specTypeOf(MethodSpec method) {
         return method.parameters().stream()
                 .map(ParameterSpec::typeDef)
                 .filter(t -> t != null && t.sealed())
                 .findFirst()
                 .orElseThrow();
-    }
-
-    private static void rollbackQuietly(Connection conn) {
-        try {
-            conn.rollback();
-        } catch (SQLException e) {
-            // The deploy already failed; nothing actionable on a rollback failure.
-        }
     }
 
     private static String resolveFunctionName(RepositorySpec repo, MethodSpec method) {
