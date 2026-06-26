@@ -1,6 +1,5 @@
 package net.unit8.tieto.core.function;
 
-import net.unit8.tieto.core.connection.ConnectionProvider;
 import net.unit8.tieto.core.exception.FunctionCallException;
 import net.unit8.tieto.core.mapper.DomainMapper;
 import net.unit8.tieto.core.mapper.MapperRegistry;
@@ -9,6 +8,7 @@ import net.unit8.tieto.core.proxy.ParameterInfo;
 import net.unit8.tieto.core.proxy.ReturnTypeHandler;
 import org.postgresql.util.PGobject;
 
+import javax.sql.DataSource;
 import java.sql.*;
 import java.util.List;
 
@@ -24,9 +24,15 @@ public final class FunctionInvoker {
 
     /**
      * Invokes a PostgreSQL function and processes the result.
+     *
+     * <p>The Connection is acquired and released via try-with-resources. Whether
+     * {@code close()} physically closes the Connection or hands it back to an
+     * enclosing transaction is decided by the {@link DataSource} (e.g.
+     * {@link net.unit8.tieto.core.connection.TietoDataSource} or Spring's
+     * {@code TransactionAwareDataSourceProxy}), not here.</p>
      */
     public static Object invoke(
-            ConnectionProvider connectionProvider,
+            DataSource dataSource,
             String functionName,
             MethodMetadata metadata,
             Object[] args,
@@ -34,19 +40,17 @@ public final class FunctionInvoker {
 
         String sql = buildSql(functionName, metadata.parameters().size());
 
-        try {
-            Connection conn = connectionProvider.getConnection();
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                bindParameters(ps, metadata.parameters(), args, mapperRegistry);
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            bindParameters(ps, metadata.parameters(), args, mapperRegistry);
 
-                if (metadata.returnTypeHandler() instanceof ReturnTypeHandler.VoidHandler) {
-                    ps.execute();
-                    return null;
-                }
+            if (metadata.returnTypeHandler() instanceof ReturnTypeHandler.VoidHandler) {
+                ps.execute();
+                return null;
+            }
 
-                try (ResultSet rs = ps.executeQuery()) {
-                    return metadata.returnTypeHandler().extractResult(rs, mapperRegistry);
-                }
+            try (ResultSet rs = ps.executeQuery()) {
+                return metadata.returnTypeHandler().extractResult(rs, mapperRegistry);
             }
         } catch (SQLException e) {
             throw new FunctionCallException(

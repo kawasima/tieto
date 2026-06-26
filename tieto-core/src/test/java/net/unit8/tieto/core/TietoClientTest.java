@@ -39,17 +39,4 @@ class TietoClientTest {
     interface SampleRepository {
         void doSomething();
     }
-
-    // Minimal DataSource stub that throws on getConnection
-    static class StubDataSource implements javax.sql.DataSource {
-        public java.sql.Connection getConnection() { throw new UnsupportedOperationException(); }
-        public java.sql.Connection getConnection(String u, String p) { throw new UnsupportedOperationException(); }
-        public java.io.PrintWriter getLogWriter() { return null; }
-        public void setLogWriter(java.io.PrintWriter out) {}
-        public void setLoginTimeout(int seconds) {}
-        public int getLoginTimeout() { return 0; }
-        public java.util.logging.Logger getParentLogger() { return null; }
-        public <T> T unwrap(Class<T> iface) { return null; }
-        public boolean isWrapperFor(Class<?> iface) { return false; }
-    }
 }

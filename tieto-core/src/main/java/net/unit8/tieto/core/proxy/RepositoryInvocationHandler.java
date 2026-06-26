@@ -1,10 +1,10 @@
 package net.unit8.tieto.core.proxy;
 
-import net.unit8.tieto.core.connection.ConnectionProvider;
 import net.unit8.tieto.core.function.FunctionInvoker;
 import net.unit8.tieto.core.function.FunctionNameResolver;
 import net.unit8.tieto.core.mapper.MapperRegistry;
 
+import javax.sql.DataSource;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,18 +17,18 @@ import java.util.concurrent.ConcurrentMap;
 public final class RepositoryInvocationHandler implements InvocationHandler {
 
     private final Class<?> repositoryInterface;
-    private final ConnectionProvider connectionProvider;
+    private final DataSource dataSource;
     private final MapperRegistry mapperRegistry;
     private final FunctionNameResolver nameResolver;
     private final ConcurrentMap<Method, MethodMetadata> metadataCache = new ConcurrentHashMap<>();
 
     public RepositoryInvocationHandler(
             Class<?> repositoryInterface,
-            ConnectionProvider connectionProvider,
+            DataSource dataSource,
             MapperRegistry mapperRegistry,
             FunctionNameResolver nameResolver) {
         this.repositoryInterface = repositoryInterface;
-        this.connectionProvider = connectionProvider;
+        this.dataSource = dataSource;
         this.mapperRegistry = mapperRegistry;
         this.nameResolver = nameResolver;
     }
@@ -56,7 +56,7 @@ public final class RepositoryInvocationHandler implements InvocationHandler {
         String functionName = nameResolver.resolve(repositoryInterface, method);
 
         return FunctionInvoker.invoke(
-                connectionProvider,
+                dataSource,
                 functionName,
                 metadata,
                 args,

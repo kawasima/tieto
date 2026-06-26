@@ -87,5 +87,5 @@ Docker PostgreSQL: `localhost:5432`, db=`tieto_example`, user=`tieto`, password=
 
 ### Key Design Decisions
 - Domain models have **zero dependency on tieto**; Repository interfaces depend only on `@FunctionVersion` (optional)
-- Transactions are externally controlled (TransactionContext for standalone, DataSourceUtils for Spring)
+- Transaction-awareness lives in the DataSource: tieto-core only does `try (Connection c = dataSource.getConnection()) { ... }`, and `close()` decides whether to physically close or hand the connection back to a transaction. Standalone uses `TietoDataSource.inTransaction(...)`; Spring wraps the DataSource in `TransactionAwareDataSourceProxy`.
 - Method metadata is cached in `ConcurrentHashMap` per proxy instance
