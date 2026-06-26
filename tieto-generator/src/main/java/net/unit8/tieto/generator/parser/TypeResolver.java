@@ -50,8 +50,12 @@ public final class TypeResolver {
      *         or types whose source cannot be located
      */
     public TypeDef resolve(String rawType, CompilationUnit context) {
-        String typeName = stripGenerics(rawType);
-        if (typeName.contains("<") || SIMPLE_TYPES.contains(typeName)) {
+        // Generic wrappers (List<...>, Optional<...>, etc.) are not described.
+        if (rawType.contains("<")) {
+            return null;
+        }
+        String typeName = rawType.trim();
+        if (SIMPLE_TYPES.contains(typeName)) {
             return null;
         }
 
@@ -129,25 +133,26 @@ public final class TypeResolver {
             return new Located(inUnit, unit);
         }
 
-        String fqcn = resolveFqcn(typeName, unit);
-        if (fqcn == null) {
-            return null;
-        }
-        Path file = sourceDir.resolve(fqcn.replace('.', '/') + ".java");
-        if (!Files.exists(file)) {
-            return null;
-        }
-        try {
-            ParseResult<CompilationUnit> result = RepositoryParser.JAVA_PARSER.parse(file);
-            CompilationUnit cu = result.getResult().orElse(null);
-            if (cu == null) {
-                return null;
+        for (String fqcn : candidateFqcns(typeName, unit)) {
+            Path file = sourceDir.resolve(fqcn.replace('.', '/') + ".java");
+            if (!Files.exists(file)) {
+                continue;
             }
-            TypeDeclaration<?> inFile = findType(cu, typeName);
-            return inFile != null ? new Located(inFile, cu) : null;
-        } catch (IOException e) {
-            return null;
+            try {
+                ParseResult<CompilationUnit> result = RepositoryParser.JAVA_PARSER.parse(file);
+                CompilationUnit cu = result.getResult().orElse(null);
+                if (cu == null) {
+                    continue;
+                }
+                TypeDeclaration<?> inFile = findType(cu, typeName);
+                if (inFile != null) {
+                    return new Located(inFile, cu);
+                }
+            } catch (IOException e) {
+                // try the next candidate
+            }
         }
+        return null;
     }
 
     private static TypeDeclaration<?> findType(CompilationUnit unit, String typeName) {
@@ -159,22 +164,29 @@ public final class TypeResolver {
         return null;
     }
 
-    private static String resolveFqcn(String typeName, CompilationUnit unit) {
+    /**
+     * Candidate fully-qualified names for a simple type name, in precedence
+     * order: explicit imports, the current package, then each wildcard-imported
+     * package. The caller tries each until a source file is found, so a type
+     * brought in via {@code import foo.bar.*;} is not silently dropped.
+     */
+    private static List<String> candidateFqcns(String typeName, CompilationUnit unit) {
+        List<String> candidates = new ArrayList<>();
+        List<String> wildcardPackages = new ArrayList<>();
         for (var imp : unit.getImports()) {
-            if (imp.isAsterisk()) continue;
             String name = imp.getNameAsString();
-            if (name.equals(typeName) || name.endsWith("." + typeName)) {
-                return name;
+            if (imp.isAsterisk()) {
+                wildcardPackages.add(name);
+            } else if (name.equals(typeName) || name.endsWith("." + typeName)) {
+                candidates.add(name);
             }
         }
-        return unit.getPackageDeclaration()
-                .map(pd -> pd.getNameAsString() + "." + typeName)
-                .orElse(typeName);
-    }
-
-    private static String stripGenerics(String type) {
-        int lt = type.indexOf('<');
-        return lt >= 0 ? type.substring(0, lt) : type;
+        unit.getPackageDeclaration()
+                .ifPresent(pd -> candidates.add(pd.getNameAsString() + "." + typeName));
+        for (String pkg : wildcardPackages) {
+            candidates.add(pkg + "." + typeName);
+        }
+        return candidates;
     }
 
     static String kindOf(String simpleName) {
