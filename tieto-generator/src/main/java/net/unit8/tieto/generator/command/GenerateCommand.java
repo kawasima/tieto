@@ -75,6 +75,11 @@ public class GenerateCommand implements Callable<Integer> {
             description = "Custom CLI command for AI generation (e.g. \"ollama run codellama\")")
     private String aiCommand;
 
+    @Option(names = "--ai-max-tokens", defaultValue = "8192",
+            description = "Max output tokens for API providers (claude, openai). Raise this if a"
+                    + " large function is rejected as truncated. Default: ${DEFAULT-VALUE}")
+    private int aiMaxTokens;
+
     @Option(names = "--output-dir", defaultValue = "sql/",
             description = "Output directory for generated SQL files")
     private Path outputDir;
@@ -270,6 +275,6 @@ public class GenerateCommand implements Callable<Integer> {
             throw new GeneratorException(
                     "--ai-api-key is required for provider: " + aiProvider);
         }
-        return AiProviderFactory.create(aiProvider, aiApiKey, aiModel);
+        return AiProviderFactory.create(aiProvider, aiApiKey, aiModel, aiMaxTokens);
     }
 }

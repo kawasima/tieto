@@ -17,12 +17,13 @@ public class AiProviderFactory {
      * @param provider the provider name ("claude", "anthropic", "openai", "claude-cli")
      * @param apiKey the API key (nullable for CLI providers)
      * @param model the model override (nullable)
+     * @param maxTokens the output token limit for API providers
      * @return the AI provider instance
      */
-    public static AiProvider create(String provider, String apiKey, String model) {
+    public static AiProvider create(String provider, String apiKey, String model, int maxTokens) {
         return switch (provider.toLowerCase()) {
-            case "claude", "anthropic" -> new ClaudeProvider(apiKey, model);
-            case "openai" -> new OpenAiProvider(apiKey, model);
+            case "claude", "anthropic" -> new ClaudeProvider(apiKey, model, maxTokens);
+            case "openai" -> new OpenAiProvider(apiKey, model, maxTokens);
             case "claude-cli" -> new CliAiProvider(List.of("claude", "--print"));
             default -> throw new GeneratorException("Unknown AI provider: " + provider);
         };
