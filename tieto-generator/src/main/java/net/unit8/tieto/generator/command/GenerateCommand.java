@@ -24,8 +24,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
@@ -228,15 +226,12 @@ public class GenerateCommand implements Callable<Integer> {
     }
 
     private boolean functionExistsInDb(String functionName) {
-        try (Connection conn = DriverManager.getConnection(dbUrl, dbUser, dbPassword);
-             PreparedStatement ps = conn.prepareStatement(
-                     "SELECT 1 FROM information_schema.routines WHERE routine_name = ?")) {
-            ps.setString(1, functionName);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next();
-            }
+        try (Connection conn = DriverManager.getConnection(dbUrl, dbUser, dbPassword)) {
+            return DeployedFunctions.existsInDatabase(conn, functionName);
         } catch (SQLException e) {
-            return false;
+            throw new GeneratorException(
+                    "Failed to connect to check whether function " + functionName
+                            + " already exists: " + e.getMessage(), e);
         }
     }
 
@@ -246,10 +241,11 @@ public class GenerateCommand implements Callable<Integer> {
             return false;
         }
         try {
-            String content = Files.readString(outputFile);
-            return content.contains(functionName);
+            return DeployedFunctions.declaredInFile(Files.readString(outputFile), functionName);
         } catch (IOException e) {
-            return false;
+            throw new GeneratorException(
+                    "Failed to read " + outputFile + " to check for an existing function: "
+                            + e.getMessage(), e);
         }
     }
 
