@@ -14,19 +14,55 @@ import java.util.List;
 public class DirectDeployer {
 
     /**
-     * Deploys all generated functions by executing CREATE OR REPLACE FUNCTION statements.
+     * Deploys all generated functions in a single transaction, so a failure
+     * partway through rolls back rather than leaving the database half-migrated.
      *
-     * @param conn the database connection
+     * <p>The connection is expected to own no pending work: this method takes
+     * over transaction control, committing on success and rolling back on
+     * failure. Do not pass a connection with an in-progress transaction.</p>
+     *
+     * @param conn the database connection (no transaction in progress)
      * @param functions the generated functions to deploy
      */
     public void deploy(Connection conn, List<GeneratedFunction> functions) {
+        try {
+            if (!conn.getAutoCommit()) {
+                throw new GeneratorException(
+                        "deploy requires a connection with no transaction in progress"
+                                + " (autoCommit was false); it manages its own transaction");
+            }
+            conn.setAutoCommit(false);
+        } catch (SQLException e) {
+            throw new GeneratorException(
+                    "Failed to start deploy transaction: " + e.getMessage(), e);
+        }
         try (Statement stmt = conn.createStatement()) {
             for (GeneratedFunction func : functions) {
                 stmt.execute(func.sqlBody());
             }
+            conn.commit();
         } catch (SQLException e) {
+            rollback(conn);
             throw new GeneratorException(
                     "Failed to deploy function: " + e.getMessage(), e);
+        } finally {
+            restoreAutoCommit(conn);
+        }
+    }
+
+    private static void rollback(Connection conn) {
+        try {
+            conn.rollback();
+        } catch (SQLException e) {
+            // The deploy already failed; nothing actionable on a rollback failure.
+        }
+    }
+
+    private static void restoreAutoCommit(Connection conn) {
+        try {
+            conn.setAutoCommit(true);
+        } catch (SQLException e) {
+            // Connection is about to be closed by the caller; ignore.
         }
     }
 }
