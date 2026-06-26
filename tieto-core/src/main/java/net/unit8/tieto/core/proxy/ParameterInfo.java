@@ -1,5 +1,7 @@
 package net.unit8.tieto.core.proxy;
 
+import net.unit8.tieto.core.exception.FunctionCallException;
+
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
@@ -75,8 +77,10 @@ public record ParameterInfo(
     }
 
     /**
-     * The {@code E} of an {@code Optional<E>} parameter. Falls back to
-     * {@code Object} for a raw or wildcard {@code Optional<?>}.
+     * The {@code E} of an {@code Optional<E>} parameter. Rejects a raw
+     * {@code Optional}, a wildcard, or a type variable with a clear error — the
+     * same way {@link ReturnTypeHandler} treats an unresolvable return type —
+     * rather than degrading to {@code Object} and mis-binding the value as JSONB.
      */
     private static Class<?> optionalElementType(Type genericType) {
         if (genericType instanceof ParameterizedType pt) {
@@ -84,11 +88,15 @@ public record ParameterInfo(
             if (arg instanceof Class<?> c) {
                 return c;
             }
+            // Optional<List<X>> etc.: bind the container as JSONB, like a plain List<X> parameter.
             if (arg instanceof ParameterizedType inner && inner.getRawType() instanceof Class<?> rawClass) {
                 return rawClass;
             }
         }
-        return Object.class;
+        throw new FunctionCallException(
+                "Unsupported parameter type " + genericType.getTypeName()
+                        + ": an Optional parameter must have a concrete element type"
+                        + " (no raw Optional, wildcard, or type variable).");
     }
 
     private static boolean isSimpleType(Class<?> type) {

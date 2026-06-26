@@ -3,6 +3,7 @@ package net.unit8.tieto.core;
 import javax.sql.DataSource;
 import java.io.PrintWriter;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.logging.Logger;
 
@@ -13,6 +14,19 @@ import java.util.logging.Logger;
  * {@code 0}) and {@link #isWrapperFor(Class)} (returns {@code false}).
  */
 public class StubDataSource implements DataSource {
+
+    /**
+     * A stub that opens a fresh DriverManager connection per call — for integration
+     * tests that point at a Testcontainers database.
+     */
+    public static StubDataSource opening(String url, String user, String password) {
+        return new StubDataSource() {
+            @Override
+            public Connection getConnection() throws SQLException {
+                return DriverManager.getConnection(url, user, password);
+            }
+        };
+    }
 
     @Override
     public Connection getConnection() throws SQLException {

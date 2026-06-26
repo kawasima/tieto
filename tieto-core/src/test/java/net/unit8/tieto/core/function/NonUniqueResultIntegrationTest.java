@@ -51,14 +51,9 @@ class NonUniqueResultIntegrationTest {
     }
 
     private DupRepository repo() {
-        StubDataSource ds = new StubDataSource() {
-            @Override
-            public Connection getConnection() throws SQLException {
-                return DriverManager.getConnection(
-                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-            }
-        };
-        return TietoClient.builder(ds).build().createRepository(DupRepository.class);
+        return TietoClient.builder(StubDataSource.opening(
+                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()))
+                .build().createRepository(DupRepository.class);
     }
 
     @Test

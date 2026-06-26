@@ -11,6 +11,7 @@ import org.postgresql.util.PGobject;
 import javax.sql.DataSource;
 import java.sql.*;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Executes PostgreSQL functions via JDBC.
@@ -83,8 +84,10 @@ public final class FunctionInvoker {
             ParameterInfo info = paramInfos.get(i);
             Object arg = args[i];
 
-            // Unwrap Optional<E> to its value (empty -> null), then bind as E.
-            if (info.isOptional() && arg instanceof java.util.Optional<?> opt) {
+            // A top-level Optional<E> parameter is unwrapped and bound here as E
+            // (empty -> null); an Optional nested inside a domain object is instead
+            // handled by Jackson's Jdk8Module when that object is serialized to JSONB.
+            if (info.isOptional() && arg instanceof Optional<?> opt) {
                 arg = opt.orElse(null);
             }
 

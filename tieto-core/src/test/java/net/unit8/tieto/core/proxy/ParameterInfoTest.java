@@ -1,5 +1,6 @@
 package net.unit8.tieto.core.proxy;
 
+import net.unit8.tieto.core.exception.FunctionCallException;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -8,6 +9,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ParameterInfoTest {
 
@@ -95,6 +97,14 @@ class ParameterInfoTest {
         assertThat(ParameterInfo.from(method).getFirst().isOptional()).isFalse();
     }
 
+    @Test
+    void from_rejectsAWildcardOptionalParameterWithAClearError() throws NoSuchMethodException {
+        var method = TestRepo.class.getMethod("findByWildcard", Optional.class);
+        assertThatThrownBy(() -> ParameterInfo.from(method))
+                .isInstanceOf(FunctionCallException.class)
+                .hasMessageContaining("Unsupported parameter type");
+    }
+
     // Test types
     record Order(Long id, String name) {}
     enum Status { ACTIVE, INACTIVE }
@@ -109,5 +119,6 @@ class ParameterInfoTest {
         void updateStatus(Long id, Status status);
         void findByOptionalName(Optional<String> name);
         void findMatching(Optional<Order> example);
+        void findByWildcard(Optional<?> any);
     }
 }
