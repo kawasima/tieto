@@ -91,11 +91,20 @@ public class GenerateCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
-        // Resolve secrets: a command-line value if given, else the environment
-        // variable, so the secret need not appear in the process list or shell history.
-        dbPassword = SecretOption.require(dbPassword, System.getenv("TIETO_DB_PASSWORD"),
-                "Database password", "TIETO_DB_PASSWORD");
-        aiApiKey = SecretOption.orNull(aiApiKey, System.getenv("TIETO_AI_API_KEY"));
+        // Resolve secrets from the command line or, preferably, the environment, so
+        // they need not appear in the process list or shell history. (An empty string
+        // is a valid password, e.g. for trust/peer auth; only an absent one is an error.)
+        dbPassword = SecretOption.resolve(dbPassword, System.getenv("TIETO_DB_PASSWORD"));
+        if (dbPassword == null) {
+            System.err.println("Database password is required: set the TIETO_DB_PASSWORD"
+                    + " environment variable, or pass --db-password (you will be prompted).");
+            return 2;
+        }
+        // The API key may legitimately come from a file via $(...); strip a stray newline.
+        aiApiKey = SecretOption.resolve(aiApiKey, System.getenv("TIETO_AI_API_KEY"));
+        if (aiApiKey != null) {
+            aiApiKey = aiApiKey.strip();
+        }
 
         System.out.println("Parsing repository: " + repositoryClassName);
 
