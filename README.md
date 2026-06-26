@@ -105,6 +105,16 @@ tieto generate ... --output-mode file
 tieto generate ... --ai-provider claude --ai-api-key $ANTHROPIC_API_KEY
 ```
 
+Secrets — the DB password and the AI API key — are better supplied as environment
+variables (`TIETO_DB_PASSWORD`, `TIETO_AI_API_KEY`) than on the command line, where
+they would land in the process list, shell history, and CI logs. You can also pass
+`--db-password` / `--ai-api-key` with no value to be prompted (no echo):
+
+```bash
+export TIETO_DB_PASSWORD=...   # picked up automatically; nothing on argv
+tieto generate ... --db-user tieto --ai-provider claude   # prompts for the key, or reads TIETO_AI_API_KEY
+```
+
 The AI reads the Repository interface Javadoc + the live database schema and produces PostgreSQL Functions. By default, functions are deployed directly to the database. Use `--output-mode file` to write SQL files instead.
 
 If a function version already exists in the database, it is skipped. Use `--force` to regenerate.
