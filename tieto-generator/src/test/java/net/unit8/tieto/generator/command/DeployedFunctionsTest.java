@@ -36,6 +36,15 @@ class DeployedFunctionsTest {
     }
 
     @Test
+    void declaredInFile_doesNotMatchACreateFunctionInsideACommentOrString() {
+        assertThat(DeployedFunctions.declaredInFile(
+                "-- CREATE OR REPLACE FUNCTION foo() was here once\nSELECT 1;", "foo")).isFalse();
+        assertThat(DeployedFunctions.declaredInFile(
+                "CREATE FUNCTION other_v1() RETURNS void LANGUAGE plpgsql AS $$ BEGIN"
+                        + " EXECUTE 'CREATE OR REPLACE FUNCTION foo()'; END $$;", "foo")).isFalse();
+    }
+
+    @Test
     void declaredInFile_falseWhenAbsent() {
         assertThat(DeployedFunctions.declaredInFile("SELECT 1;", "foo")).isFalse();
     }

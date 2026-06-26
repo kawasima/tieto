@@ -29,6 +29,7 @@ class DeployedFunctionsDbIntegrationTest {
             stmt.execute("CREATE FUNCTION present_v1() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$");
             stmt.execute("CREATE SCHEMA other");
             stmt.execute("CREATE FUNCTION other.elsewhere_v1() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$");
+            stmt.execute("CREATE PROCEDURE a_procedure_v1() LANGUAGE sql AS $$ SELECT 1 $$");
         }
     }
 
@@ -50,6 +51,14 @@ class DeployedFunctionsDbIntegrationTest {
     void existsInDatabase_falseForAFunctionOnlyInAnotherSchema() throws SQLException {
         try (Connection conn = newConnection()) {
             assertThat(DeployedFunctions.existsInDatabase(conn, "elsewhere_v1")).isFalse();
+        }
+    }
+
+    @Test
+    void existsInDatabase_falseForAProcedureOfTheSameName() throws SQLException {
+        // tieto only ever creates FUNCTIONs; a same-named PROCEDURE must not count.
+        try (Connection conn = newConnection()) {
+            assertThat(DeployedFunctions.existsInDatabase(conn, "a_procedure_v1")).isFalse();
         }
     }
 
