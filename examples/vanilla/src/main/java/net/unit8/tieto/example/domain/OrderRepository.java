@@ -37,4 +37,11 @@ public interface OrderRepository {
      */
     @FunctionVersion(1)
     void updateStatus(Long id, OrderStatus status);
+
+    /**
+     * Find all orders matching the given composable Specification,
+     * ordered by creation date descending. Return each as the full aggregate.
+     */
+    @FunctionVersion(1)
+    List<Order> findBy(OrderSpec spec);
 }
