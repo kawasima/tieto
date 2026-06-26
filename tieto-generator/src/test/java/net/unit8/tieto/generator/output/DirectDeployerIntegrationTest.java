@@ -68,6 +68,24 @@ class DirectDeployerIntegrationTest {
         assertThat(functionExists("tx_v1")).isFalse();
     }
 
+    @Test
+    void rollsBackWhenAPostDeployVerificationFails() throws SQLException {
+        try (Connection conn = newConnection()) {
+            assertThatThrownBy(() -> new DirectDeployer().deploy(
+                    conn,
+                    List.of(fn("verify_v1",
+                            "CREATE OR REPLACE FUNCTION verify_v1() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$")),
+                    List.of(c -> {
+                        throw new GeneratorException("probe rejected the function");
+                    })))
+                    .isInstanceOf(GeneratorException.class)
+                    .hasMessageContaining("probe rejected");
+        }
+        assertThat(functionExists("verify_v1"))
+                .as("a function whose verification failed must be rolled back")
+                .isFalse();
+    }
+
     private static Connection newConnection() throws SQLException {
         return DriverManager.getConnection(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());

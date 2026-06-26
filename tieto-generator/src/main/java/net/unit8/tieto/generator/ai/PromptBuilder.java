@@ -146,23 +146,63 @@ public class PromptBuilder {
         return """
 
                 ## Specification Rules (composable query conditions)
-                The Specification arrives as ONE jsonb argument holding a condition tree.
+                The Specification arrives as ONE jsonb argument named spec holding a condition tree.
                 Generate TWO functions:
-                1. The main function %1$s(...) that builds the WHERE clause from the spec
-                   tree and returns each matching aggregate as JSONB (same nested shape as
-                   the other functions for this entity).
-                2. A helper function %1$s_spec_to_sql(spec jsonb) RETURNS text that
-                   recursively translates one spec node into a boolean SQL expression.
-                Translation rules for the helper:
-                - kind "and": AND-join %1$s_spec_to_sql over each element of spec->'specs',
-                  wrapped in parentheses. An empty list yields TRUE.
-                - kind "or": OR-join over spec->'specs', wrapped in parentheses. Empty yields FALSE.
-                - kind "not": 'NOT (' || %1$s_spec_to_sql(spec->'spec') || ')'.
-                - any other kind: a LEAF predicate. Derive its SQL condition from the kind
-                  name, its fields, and the schema (map the domain predicate to the right
-                  column(s) or aggregate expression). Embed field values safely with
-                  quote_literal()/format() to avoid SQL injection.
-                - A NULL or absent spec means "no condition" (TRUE).
+                1. The MAIN function %1$s(...): build the WHERE clause from the spec tree and
+                   EXECUTE the query with the spec BOUND as a parameter (USING spec), returning
+                   each matching aggregate as JSONB (same nested shape as the other functions).
+                2. A helper %1$s_spec_to_sql(node jsonb, path text[]) RETURNS text that
+                   recursively translates one node into a boolean SQL expression.
+
+                SECURITY — spec values must be BOUND, never concatenated (MANDATORY):
+                - The helper MUST NOT put any spec value into the SQL text. It reads only
+                  node->>'kind' (for dispatch); every leaf VALUE is referenced from the bound
+                  spec BY PATH, so it travels as a bind parameter, not as text.
+                - The main function binds the whole spec as $1 and EXECUTEs:
+                    RETURN QUERY EXECUTE
+                      'SELECT ... FROM orders o WHERE ' || %1$s_spec_to_sql(spec, '{}'::text[])
+                      USING spec;
+                - A leaf references its value as ($1 #>> <path>), building the path text[] with
+                  format()'s %%L (the path, NOT the value, is what %%L quotes):
+                    -- forCustomer:
+                    RETURN format('customer_id = ($1 #>> %%L)', path || ARRAY['customerId']);
+                    -- highValue (typed compare; o is the main query's table alias):
+                    RETURN format('(SELECT SUM(quantity*unit_price) FROM order_lines l WHERE l.order_id = o.id) >= ($1 #>> %%L)::numeric', path || ARRAY['min']);
+                - NEVER write '... = ' || (node->>'field'), and do NOT call quote_literal on a
+                  spec value. The value must reach SQL only through the bound $1.
+
+                Recursion (extend the path as you descend):
+                - kind "and": AND-join %1$s_spec_to_sql(child, path || ARRAY['specs', i::text])
+                  over each element i of node->'specs', wrapped in parentheses. Empty list -> TRUE.
+                - kind "or": OR-join the same way. Empty -> FALSE.
+                - kind "not": 'NOT (' || %1$s_spec_to_sql(node->'spec', path || ARRAY['spec']) || ')'.
+                - A NULL node means "no condition" (TRUE).
+
+                Worked example of the helper:
+                CREATE OR REPLACE FUNCTION %1$s_spec_to_sql(node jsonb, path text[]) RETURNS text
+                LANGUAGE plpgsql AS $$
+                DECLARE k text := node->>'kind'; parts text[] := '{}'; child jsonb; i int := 0;
+                BEGIN
+                  IF node IS NULL THEN RETURN 'TRUE'; END IF;
+                  IF k = 'and' THEN
+                    FOR child IN SELECT jsonb_array_elements(node->'specs') LOOP
+                      parts := parts || %1$s_spec_to_sql(child, path || ARRAY['specs', i::text]); i := i + 1;
+                    END LOOP;
+                    IF array_length(parts,1) IS NULL THEN RETURN 'TRUE'; END IF;
+                    RETURN '(' || array_to_string(parts, ' AND ') || ')';
+                  ELSIF k = 'or' THEN
+                    FOR child IN SELECT jsonb_array_elements(node->'specs') LOOP
+                      parts := parts || %1$s_spec_to_sql(child, path || ARRAY['specs', i::text]); i := i + 1;
+                    END LOOP;
+                    IF array_length(parts,1) IS NULL THEN RETURN 'FALSE'; END IF;
+                    RETURN '(' || array_to_string(parts, ' OR ') || ')';
+                  ELSIF k = 'not' THEN
+                    RETURN 'NOT (' || %1$s_spec_to_sql(node->'spec', path || ARRAY['spec']) || ')';
+                  ELSIF k = 'forCustomer' THEN
+                    RETURN format('customer_id = ($1 #>> %%L)', path || ARRAY['customerId']);
+                  ELSE RAISE EXCEPTION 'unknown spec kind: %%', k; END IF;
+                END; $$;
+
                 Output the MAIN function FIRST, then the helper function.
                 """.formatted(functionName);
     }

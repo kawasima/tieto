@@ -7,10 +7,13 @@ import net.unit8.tieto.generator.ai.GeneratedSqlValidator;
 import net.unit8.tieto.generator.ai.PromptBuilder;
 import net.unit8.tieto.generator.parser.GeneratorException;
 import net.unit8.tieto.generator.output.DirectDeployer;
+import net.unit8.tieto.generator.output.SpecInjectionProbe;
 import net.unit8.tieto.generator.output.SqlFileWriter;
 import net.unit8.tieto.generator.parser.MethodSpec;
+import net.unit8.tieto.generator.parser.ParameterSpec;
 import net.unit8.tieto.generator.parser.RepositoryParser;
 import net.unit8.tieto.generator.parser.RepositorySpec;
+import net.unit8.tieto.generator.parser.TypeDef;
 import net.unit8.tieto.generator.schema.SchemaReader;
 import net.unit8.tieto.generator.schema.TableInfo;
 import picocli.CommandLine.Command;
@@ -104,6 +107,7 @@ public class GenerateCommand implements Callable<Integer> {
         GeneratedSqlValidator validator = new GeneratedSqlValidator();
 
         List<GeneratedFunction> functions = new ArrayList<>();
+        List<MethodSpec> deployedSpecMethods = new ArrayList<>();
         for (MethodSpec method : repoSpec.methods()) {
             String versionedName = resolveFunctionName(repoSpec, method);
 
@@ -120,6 +124,9 @@ public class GenerateCommand implements Callable<Integer> {
             // when (and only when) the method takes a composable Specification.
             validator.validate(generated.sqlBody(), versionedName, hasSpecParameter(method));
             functions.add(generated);
+            if (hasSpecParameter(method)) {
+                deployedSpecMethods.add(method);
+            }
             System.out.println("  -> " + generated.functionName());
         }
 
@@ -130,8 +137,11 @@ public class GenerateCommand implements Callable<Integer> {
 
         // 4. Output
         if ("deploy".equals(outputMode)) {
+            // Deploy and behaviorally probe each spec function in one transaction:
+            // commit only if every probe proves leaf values are bound, not concatenated.
+            List<DirectDeployer.DeployVerification> probes = injectionProbes(repoSpec, deployedSpecMethods);
             try (Connection conn = DriverManager.getConnection(dbUrl, dbUser, dbPassword)) {
-                new DirectDeployer().deploy(conn, functions);
+                new DirectDeployer().deploy(conn, functions, probes);
             }
             System.out.println("Deployed " + functions.size() + " functions to database");
         } else {
@@ -140,6 +150,40 @@ public class GenerateCommand implements Callable<Integer> {
         }
 
         return 0;
+    }
+
+    /**
+     * Builds the behavioral injection probes for each freshly deployed spec function:
+     * one per String-typed leaf field. Run inside the deploy transaction, a failing
+     * probe rolls back the deploy.
+     */
+    private List<DirectDeployer.DeployVerification> injectionProbes(
+            RepositorySpec repoSpec, List<MethodSpec> specMethods) {
+        SpecInjectionProbe probe = new SpecInjectionProbe();
+        List<DirectDeployer.DeployVerification> probes = new ArrayList<>();
+        for (MethodSpec method : specMethods) {
+            String functionName = resolveFunctionName(repoSpec, method);
+            List<String> probeSpecs = SpecInjectionProbe.probeSpecsFor(specTypeOf(method));
+            if (probeSpecs.isEmpty()) {
+                System.out.println("  (no string-typed leaf to probe " + functionName
+                        + "; relying on the static contract check)");
+                continue;
+            }
+            for (String probeSpec : probeSpecs) {
+                probes.add(conn -> probe.verify(conn, functionName, probeSpec));
+            }
+        }
+        return probes;
+    }
+
+    // The same predicate as hasSpecParameter, so a method in deployedSpecMethods
+    // always has a sealed spec parameter and orElseThrow cannot fire.
+    private static TypeDef specTypeOf(MethodSpec method) {
+        return method.parameters().stream()
+                .map(ParameterSpec::typeDef)
+                .filter(t -> t != null && t.sealed())
+                .findFirst()
+                .orElseThrow();
     }
 
     private static String resolveFunctionName(RepositorySpec repo, MethodSpec method) {
