@@ -147,6 +147,49 @@ public class OrderService {
 
 `createRepository()` (standalone) or `@EnableTietoRepositories` (Spring) creates a JDK Dynamic Proxy. Each method call translates to a PostgreSQL function invocation like `SELECT * FROM order_repository_find_by_id_v1(?)`.
 
+## Composable Specifications
+
+Query conditions can be modeled as a composable Specification — a domain model in its own right. Define a sealed hierarchy of `And`/`Or`/`Not` composites plus domain-named leaf predicates, then pass the tree as a Repository argument:
+
+```java
+public sealed interface OrderSpec
+    permits OrderSpec.And, OrderSpec.Or, OrderSpec.Not,
+            OrderSpec.ForCustomer, OrderSpec.HasStatus,
+            OrderSpec.CreatedAfter, OrderSpec.HighValue {
+
+    record And(List<OrderSpec> specs) implements OrderSpec {}
+    record Or(List<OrderSpec> specs)  implements OrderSpec {}
+    record Not(OrderSpec spec)        implements OrderSpec {}
+
+    record ForCustomer(String customerId)   implements OrderSpec {}
+    record HasStatus(OrderStatus status)    implements OrderSpec {}
+    record CreatedAfter(LocalDateTime t)    implements OrderSpec {}
+    record HighValue(BigDecimal min)        implements OrderSpec {}
+}
+```
+
+```java
+// Find high-value orders for CUST-001 that are not still pending
+List<Order> orders = repo.findBy(new OrderSpec.And(List.of(
+    new OrderSpec.ForCustomer("CUST-001"),
+    new OrderSpec.HighValue(new BigDecimal("1000")),
+    new OrderSpec.Not(new OrderSpec.HasStatus(OrderStatus.PENDING))
+)));
+```
+
+The leaves carry no SQL. Unlike a Rails named scope — where the developer writes the `WHERE` fragment — tieto leaves the condition to the AI: given the leaf's name, its fields, and the schema, the generator produces the SQL. For example, with no `total` column in the schema, `HighValue` is mapped to `SUM(quantity * unit_price)` over the order lines.
+
+The Specification tree travels to PostgreSQL as a single JSONB argument. Each node carries a `"kind"` discriminator (the camelCase simple class name); the remaining keys are the record components:
+
+```json
+{ "kind": "and", "specs": [
+  { "kind": "forCustomer", "customerId": "CUST-001" },
+  { "kind": "highValue", "min": 1000 }
+]}
+```
+
+This `"kind"` tag is added by convention during serialization — the Specification records themselves stay free of any annotation. tieto-generator emits a recursive function (`<function>_spec_to_sql`) that walks the tree into a `WHERE` clause, so arbitrarily nested `And`/`Or`/`Not` compositions work. See `examples/vanilla` for a runnable end-to-end example.
+
 ## Modules
 
 | Module | Role |
