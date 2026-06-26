@@ -25,7 +25,7 @@ class GeneratedSqlValidatorTest {
         String sql = """
                 CREATE OR REPLACE FUNCTION order_repository_find_by_v1(spec jsonb)
                 RETURNS SETOF jsonb LANGUAGE plpgsql AS $body$
-                BEGIN RETURN QUERY EXECUTE 'SELECT 1'; END
+                BEGIN RETURN QUERY EXECUTE 'SELECT 1' USING spec; END
                 $body$;
                 CREATE OR REPLACE FUNCTION order_repository_find_by_v1_spec_to_sql(spec jsonb)
                 RETURNS text LANGUAGE sql AS $$ SELECT 'TRUE' $$;
@@ -182,71 +182,64 @@ class GeneratedSqlValidatorTest {
                 .hasMessageContaining("truncated");
     }
 
-    // ----- spec_to_sql injection safety -----
+    // ----- parameterized spec contract -----
+
+    private static final String SAFE_MAIN =
+            "BEGIN RETURN QUERY EXECUTE 'SELECT to_jsonb(o) FROM orders o WHERE ' "
+                    + "|| order_repository_find_by_v1_spec_to_sql(spec, '{}'::text[]) USING spec; END";
+
+    private static final String SAFE_HELPER =
+            "DECLARE k text := node->>'kind'; BEGIN "
+                    + "IF k = 'forCustomer' THEN "
+                    + "RETURN format('customer_id = ($1 #>> %L)', path || ARRAY['customerId']); "
+                    + "END IF; RETURN 'TRUE'; END";
 
     @Test
-    void acceptsASpecHelperThatEmbedsValuesWithFormatL() {
+    void acceptsTheParameterizedSpecContract() {
+        // Helper reads only ->>'kind' for dispatch and references the value via a
+        // path into the bound $1; main binds the spec with EXECUTE ... USING.
         assertThatCode(() -> validator.validate(
-                specSql("SELECT format('customer_id = %L', spec->>'customerId')"),
-                "order_repository_find_by_v1", true))
+                specSql(SAFE_MAIN, SAFE_HELPER), "order_repository_find_by_v1", true))
                 .doesNotThrowAnyException();
     }
 
     @Test
-    void acceptsASpecHelperThatWrapsValuesWithQuoteLiteral() {
-        assertThatCode(() -> validator.validate(
-                specSql("SELECT 'customer_id = ' || quote_literal(spec->>'customerId')"),
-                "order_repository_find_by_v1", true))
-                .doesNotThrowAnyException();
-    }
-
-    @Test
-    void acceptsKindDispatchComparisonAndRecursion() {
-        // spec->>'kind' used in a comparison (not concatenated) and a recursive
-        // call over spec->'specs' must not be flagged.
-        String body = "SELECT CASE WHEN spec->>'kind' = 'forCustomer' "
-                + "THEN format('customer_id = %L', spec->>'customerId') "
-                + "WHEN spec->>'kind' = 'and' "
-                + "THEN string_agg(order_repository_find_by_v1_spec_to_sql(e), ' AND ') "
-                + "ELSE 'TRUE' END FROM jsonb_array_elements(spec->'specs') e";
-        assertThatCode(() -> validator.validate(specSql(body), "order_repository_find_by_v1", true))
-                .doesNotThrowAnyException();
-    }
-
-    @Test
-    void rejectsASpecHelperThatConcatenatesAValueWithParentheses() {
+    void rejectsAHelperThatExtractsASpecValueIntoSql() {
+        String helper = "BEGIN RETURN 'customer_id = ' || quote_literal(node->>'customerId'); END";
         assertThatThrownBy(() -> validator.validate(
-                specSql("SELECT 'customer_id = ' || (spec->>'customerId')"),
-                "order_repository_find_by_v1", true))
+                specSql(SAFE_MAIN, helper), "order_repository_find_by_v1", true))
                 .isInstanceOf(GeneratorException.class)
-                .hasMessageContaining("injection");
+                .hasMessageContaining("customerId");
     }
 
     @Test
-    void rejectsASpecHelperThatConcatenatesAValueWithoutParentheses() {
+    void rejectsAMainThatExecutesWithoutBindingViaUsing() {
+        String main = "BEGIN RETURN QUERY EXECUTE 'SELECT to_jsonb(o) FROM orders o WHERE '"
+                + " || order_repository_find_by_v1_spec_to_sql(spec, '{}'::text[]); END";
         assertThatThrownBy(() -> validator.validate(
-                specSql("SELECT 'customer_id = ' || spec->>'customerId'"),
-                "order_repository_find_by_v1", true))
+                specSql(main, SAFE_HELPER), "order_repository_find_by_v1", true))
                 .isInstanceOf(GeneratorException.class)
-                .hasMessageContaining("injection");
+                .hasMessageContaining("USING");
     }
 
     @Test
-    void rejectsASpecHelperWhereTheValueComesBeforeTheConcatenation() {
+    void rejectsAMainEvenWhenItExtractsTheValueItself() {
+        // The leaf value embedded directly in the main function, not the helper.
+        String main = "BEGIN RETURN QUERY EXECUTE 'SELECT to_jsonb(o) FROM orders o WHERE customer_id = '"
+                + " || quote_literal(spec->>'customerId') USING spec; END";
         assertThatThrownBy(() -> validator.validate(
-                specSql("SELECT (spec->>'customerId') || ' = customer_id'"),
-                "order_repository_find_by_v1", true))
+                specSql(main, SAFE_HELPER), "order_repository_find_by_v1", true))
                 .isInstanceOf(GeneratorException.class)
-                .hasMessageContaining("injection");
+                .hasMessageContaining("customerId");
     }
 
-    /** Wraps a {@code _spec_to_sql} helper body into a full valid main+helper pair. */
-    private static String specSql(String helperBody) {
+    /** Wraps main and helper bodies into a full main+helper pair. */
+    private static String specSql(String mainBody, String helperBody) {
         return """
                 CREATE OR REPLACE FUNCTION order_repository_find_by_v1(spec jsonb)
-                RETURNS SETOF jsonb LANGUAGE plpgsql AS $$ BEGIN RETURN QUERY EXECUTE 'SELECT 1'; END $$;
-                CREATE OR REPLACE FUNCTION order_repository_find_by_v1_spec_to_sql(spec jsonb)
-                RETURNS text LANGUAGE sql AS $body$ %s $body$;
-                """.formatted(helperBody);
+                RETURNS SETOF jsonb LANGUAGE plpgsql AS $main$ %s $main$;
+                CREATE OR REPLACE FUNCTION order_repository_find_by_v1_spec_to_sql(node jsonb, path text[])
+                RETURNS text LANGUAGE plpgsql AS $body$ %s $body$;
+                """.formatted(mainBody, helperBody);
     }
 }
