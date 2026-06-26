@@ -54,16 +54,19 @@ public class GenerateCommand implements Callable<Integer> {
             description = "Database username")
     private String dbUser;
 
-    @Option(names = "--db-password", required = true,
-            description = "Database password")
+    @Option(names = "--db-password", interactive = true, arity = "0..1",
+            description = "Database password. Prefer the TIETO_DB_PASSWORD environment variable;"
+                    + " pass the flag with no value to be prompted (no echo). Passing the value on"
+                    + " the command line is insecure on shared hosts.")
     private String dbPassword;
 
     @Option(names = "--ai-provider",
             description = "AI provider: claude, openai, claude-cli")
     private String aiProvider;
 
-    @Option(names = "--ai-api-key",
-            description = "API key for the AI provider")
+    @Option(names = "--ai-api-key", interactive = true, arity = "0..1",
+            description = "API key for the AI provider. Prefer the TIETO_AI_API_KEY environment"
+                    + " variable; pass the flag with no value to be prompted (no echo).")
     private String aiApiKey;
 
     @Option(names = "--ai-model",
@@ -88,6 +91,21 @@ public class GenerateCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
+        // Resolve secrets from the command line or, preferably, the environment, so
+        // they need not appear in the process list or shell history. (An empty string
+        // is a valid password, e.g. for trust/peer auth; only an absent one is an error.)
+        dbPassword = SecretOption.resolve(dbPassword, System.getenv("TIETO_DB_PASSWORD"));
+        if (dbPassword == null) {
+            System.err.println("Database password is required: set the TIETO_DB_PASSWORD"
+                    + " environment variable, or pass --db-password (you will be prompted).");
+            return 2;
+        }
+        // The API key may legitimately come from a file via $(...); strip a stray newline.
+        aiApiKey = SecretOption.resolve(aiApiKey, System.getenv("TIETO_AI_API_KEY"));
+        if (aiApiKey != null) {
+            aiApiKey = aiApiKey.strip();
+        }
+
         System.out.println("Parsing repository: " + repositoryClassName);
 
         // 1. Parse Repository interface + Javadoc
