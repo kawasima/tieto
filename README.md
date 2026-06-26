@@ -140,7 +140,9 @@ Optional<Order> order = repo.findById(1L);
 **Spring Boot:**
 
 Mark each repository interface with `@TietoRepository` so package scanning registers
-it (and only it — unrelated interfaces in the same package are left alone):
+it (and only it — unrelated interfaces in the same package are left alone). **Upgrading:**
+scanning now requires this marker, so add `@TietoRepository` to every repository
+interface you previously relied on being auto-registered.
 
 ```java
 import net.unit8.tieto.core.annotation.TietoRepository;

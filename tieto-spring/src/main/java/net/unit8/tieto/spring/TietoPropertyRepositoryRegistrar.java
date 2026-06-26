@@ -17,7 +17,7 @@ import org.springframework.core.env.Environment;
  * {@link Environment} since the {@link TietoProperties} bean is not available this
  * early.</p>
  */
-class TietoPropertyRepositoryRegistrar
+final class TietoPropertyRepositoryRegistrar
         implements BeanDefinitionRegistryPostProcessor, EnvironmentAware {
 
     private Environment environment;

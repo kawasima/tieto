@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Drives {@link TietoRepositoryRegistrar}: only interfaces marked with
@@ -80,6 +81,31 @@ class TietoRepositoryRegistrarTest {
     @Configuration
     @EnableTietoRepositories(basePackageClasses = SampleRepository.class)
     static class BasePackageClassesConfig {
+        @Bean
+        TietoClient tietoClient() {
+            return TietoClient.builder(new NoOpDataSource()).build();
+        }
+    }
+
+    @Test
+    void namesBeansWithSpringsJavaBeansDecapitalization() {
+        try (var ctx = new AnnotationConfigApplicationContext(ScanConfig.class)) {
+            // Acronym prefix is preserved (URLRepository), not lowercased to uRLRepository.
+            assertThat(ctx.containsBean("URLRepository")).isTrue();
+            assertThat(ctx.containsBean("sampleRepository")).isTrue();
+        }
+    }
+
+    @Test
+    void failsLoudlyWhenTwoRepositoriesShareABeanName() {
+        assertThatThrownBy(() -> new AnnotationConfigApplicationContext(CollisionConfig.class).close())
+                .hasStackTraceContaining("dupeRepository")
+                .hasStackTraceContaining("already taken");
+    }
+
+    @Configuration
+    @EnableTietoRepositories("net.unit8.tieto.dup")
+    static class CollisionConfig {
         @Bean
         TietoClient tietoClient() {
             return TietoClient.builder(new NoOpDataSource()).build();

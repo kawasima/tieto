@@ -1,5 +1,6 @@
 package net.unit8.tieto.spring;
 
+import net.unit8.tieto.core.TietoClient;
 import net.unit8.tieto.spring.testrepos.PlainService;
 import net.unit8.tieto.spring.testrepos.SampleRepository;
 import org.junit.jupiter.api.Test;
@@ -44,9 +45,45 @@ class TietoPropertyRegistrationTest {
         }
     }
 
+    @Test
+    void exposesTietoClientAndPropertiesAsBeans() {
+        try (var ctx = new AnnotationConfigApplicationContext()) {
+            ctx.register(PropertyConfig.class);
+            ctx.refresh();
+
+            // @EnableConfigurationProperties keeps TietoProperties injectable; the
+            // auto-configuration contributes the TietoClient bean.
+            assertThat(ctx.getBean(TietoProperties.class)).isNotNull();
+            assertThat(ctx.getBean(TietoClient.class)).isNotNull();
+        }
+    }
+
+    @Test
+    void registersOnceWhenBothTheAnnotationAndPropertyCoverTheSamePackage() {
+        try (var ctx = new AnnotationConfigApplicationContext()) {
+            ctx.getEnvironment().getPropertySources().addFirst(new MapPropertySource(
+                    "test", Map.of("tieto.base-packages", "net.unit8.tieto.spring.testrepos")));
+            ctx.register(BothPathsConfig.class);
+            ctx.refresh();
+
+            // Same repository reached via both paths must be idempotent, not a collision error.
+            assertThat(ctx.getBeanNamesForType(SampleRepository.class)).hasSize(1);
+        }
+    }
+
     @Configuration
     @Import(TietoAutoConfiguration.class)
     static class PropertyConfig {
+        @Bean
+        DataSource dataSource() {
+            return new NoOpDataSource();
+        }
+    }
+
+    @Configuration
+    @Import(TietoAutoConfiguration.class)
+    @EnableTietoRepositories("net.unit8.tieto.spring.testrepos")
+    static class BothPathsConfig {
         @Bean
         DataSource dataSource() {
             return new NoOpDataSource();

@@ -19,7 +19,7 @@ import java.util.Set;
  * packages of {@code basePackageClasses}; when none are given, the package of the
  * annotated configuration class is scanned.</p>
  */
-public class TietoRepositoryRegistrar implements ImportBeanDefinitionRegistrar {
+public final class TietoRepositoryRegistrar implements ImportBeanDefinitionRegistrar {
 
     @Override
     public void registerBeanDefinitions(

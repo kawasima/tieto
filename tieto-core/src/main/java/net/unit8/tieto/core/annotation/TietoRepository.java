@@ -17,6 +17,10 @@ import java.lang.annotation.Target;
  * {@link net.unit8.tieto.core.TietoClient#createRepository(Class)} (where the
  * annotation is not required) or discovered by scanning.</p>
  *
+ * <p>The annotation is not inherited: scanning matches only interfaces that
+ * declare it directly, so a sub-interface that merely {@code extends} a marked
+ * interface must carry its own {@code @TietoRepository}.</p>
+ *
  * <pre>{@code
  * @TietoRepository
  * public interface OrderRepository {

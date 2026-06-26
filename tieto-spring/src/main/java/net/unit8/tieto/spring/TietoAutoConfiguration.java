@@ -6,6 +6,7 @@ import org.springframework.beans.factory.support.BeanDefinitionRegistryPostProce
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
 
@@ -25,6 +26,7 @@ import javax.sql.DataSource;
  */
 @AutoConfiguration
 @ConditionalOnClass(TietoClient.class)
+@EnableConfigurationProperties(TietoProperties.class)
 public class TietoAutoConfiguration {
 
     @Bean
