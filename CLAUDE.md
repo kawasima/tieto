@@ -86,6 +86,6 @@ Docker PostgreSQL: `localhost:5432`, db=`tieto_example`, user=`tieto`, password=
 - Test-local records/interfaces defined inside test classes
 
 ### Key Design Decisions
-- Domain models have **zero dependency on tieto**; Repository interfaces depend only on `@FunctionVersion` (optional)
+- Domain models have **zero dependency on tieto**; Repository interfaces depend only on tieto-core annotations — `@FunctionVersion` (optional) and, when discovered by Spring package scanning, the `@TietoRepository` marker (not needed for explicit `createRepository()` registration)
 - Transaction-awareness lives in the DataSource: tieto-core only does `try (Connection c = dataSource.getConnection()) { ... }`, and `close()` decides whether to physically close or hand the connection back to a transaction. Standalone uses `TietoDataSource.inTransaction(...)`; Spring wraps the DataSource in `TransactionAwareDataSourceProxy`.
 - Method metadata is cached in `ConcurrentHashMap` per proxy instance
