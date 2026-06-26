@@ -83,6 +83,18 @@ class OpenAiProviderTest {
                 .hasMessageContaining("length");
     }
 
+    @Test
+    void rejectsAResponseWithNoMessageContent() {
+        // A content-filtered / refusal completion: 200 OK but message.content is absent.
+        responseBody = """
+                {"choices":[{"finish_reason":"content_filter","message":{"role":"assistant"}}]}""";
+
+        assertThatThrownBy(() -> provider().generateFunction("p"))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("no message content")
+                .hasMessageContaining("content_filter");
+    }
+
     private static String completeResponse() {
         return """
                 {"choices":[{"finish_reason":"stop","message":{"content":

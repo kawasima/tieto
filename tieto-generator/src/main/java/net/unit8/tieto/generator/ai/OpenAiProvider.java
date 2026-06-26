@@ -102,7 +102,7 @@ public class OpenAiProvider implements AiProvider {
         var requestNode = objectMapper.createObjectNode();
         requestNode.put("model", model);
         requestNode.put("max_tokens", maxTokens);
-        // Deterministic output: the same spec + schema should yield the same function.
+        // temperature 0 makes generation near-deterministic, minimizing run-to-run drift.
         requestNode.put("temperature", 0);
 
         var messages = requestNode.putArray("messages");
@@ -117,7 +117,15 @@ public class OpenAiProvider implements AiProvider {
     }
 
     private String extractSqlFromChoice(JsonNode choice) {
-        String result = choice.get("message").get("content").asText().trim();
+        JsonNode message = choice.get("message");
+        JsonNode content = message == null ? null : message.get("content");
+        if (content == null || content.isNull()) {
+            // e.g. a content-filtered or refusal completion: there is no SQL to deploy.
+            throw new GeneratorException(
+                    "OpenAI response contained no message content (finish_reason="
+                            + choice.path("finish_reason").asText("unknown") + ")");
+        }
+        String result = content.asText().trim();
         // Strip markdown code fences if present
         if (result.startsWith("```")) {
             result = result.replaceAll("^```\\w*\\n?", "").replaceAll("\\n?```$", "").trim();

@@ -100,7 +100,7 @@ public class ClaudeProvider implements AiProvider {
         var requestNode = objectMapper.createObjectNode();
         requestNode.put("model", model);
         requestNode.put("max_tokens", maxTokens);
-        // Deterministic output: the same spec + schema should yield the same function.
+        // temperature 0 makes generation near-deterministic, minimizing run-to-run drift.
         requestNode.put("temperature", 0);
 
         var messages = requestNode.putArray("messages");
@@ -119,12 +119,22 @@ public class ClaudeProvider implements AiProvider {
 
         StringBuilder sql = new StringBuilder();
         for (JsonNode block : content) {
-            if ("text".equals(block.get("type").asText())) {
-                sql.append(block.get("text").asText());
+            JsonNode type = block.get("type");
+            if (type != null && "text".equals(type.asText())) {
+                JsonNode text = block.get("text");
+                if (text != null) {
+                    sql.append(text.asText());
+                }
             }
         }
 
         String result = sql.toString().trim();
+        if (result.isEmpty()) {
+            // No text block (e.g. a refusal or tool_use response): there is no SQL to deploy.
+            throw new GeneratorException(
+                    "Claude response contained no text content (stop_reason="
+                            + root.path("stop_reason").asText("unknown") + ")");
+        }
         // Strip markdown code fences if present
         if (result.startsWith("```")) {
             result = result.replaceAll("^```\\w*\\n?", "").replaceAll("\\n?```$", "").trim();

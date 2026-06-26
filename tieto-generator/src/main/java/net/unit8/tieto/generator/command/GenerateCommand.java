@@ -68,7 +68,9 @@ public class GenerateCommand implements Callable<Integer> {
     private String aiApiKey;
 
     @Option(names = "--ai-model",
-            description = "AI model override")
+            description = "AI model override. Targets standard chat models (e.g. gpt-4o, "
+                    + "claude-sonnet-4); OpenAI reasoning models (o1/o3) are not supported "
+                    + "because they reject max_tokens and a non-default temperature.")
     private String aiModel;
 
     @Option(names = "--ai-command",
@@ -274,6 +276,9 @@ public class GenerateCommand implements Callable<Integer> {
         if (aiApiKey == null && !aiProvider.equalsIgnoreCase("claude-cli")) {
             throw new GeneratorException(
                     "--ai-api-key is required for provider: " + aiProvider);
+        }
+        if (aiMaxTokens < 1) {
+            throw new GeneratorException("--ai-max-tokens must be at least 1, was " + aiMaxTokens);
         }
         return AiProviderFactory.create(aiProvider, aiApiKey, aiModel, aiMaxTokens);
     }

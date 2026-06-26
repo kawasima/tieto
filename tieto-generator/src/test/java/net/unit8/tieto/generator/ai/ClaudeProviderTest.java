@@ -86,6 +86,27 @@ class ClaudeProviderTest {
                 .hasMessageContaining("max_tokens");
     }
 
+    @Test
+    void rejectsANonOkStatus() {
+        responseStatus = 429;
+        responseBody = "{\"error\":\"rate limited\"}";
+
+        assertThatThrownBy(() -> provider().generateFunction("p"))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("429");
+    }
+
+    @Test
+    void rejectsAResponseWithNoTextContent() {
+        // A refusal / tool_use response: 200 OK, content array present but no text block.
+        responseBody = """
+                {"stop_reason":"refusal","content":[{"type":"tool_use","name":"x"}]}""";
+
+        assertThatThrownBy(() -> provider().generateFunction("p"))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("no text content");
+    }
+
     private static String completeResponse() {
         return """
                 {"stop_reason":"end_turn","content":[{"type":"text",
