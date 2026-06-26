@@ -17,18 +17,32 @@ import java.util.regex.Pattern;
  */
 public class ClaudeProvider implements AiProvider {
 
-    private static final String API_URL = "https://api.anthropic.com/v1/messages";
     private static final Pattern FUNCTION_NAME_PATTERN =
             Pattern.compile("CREATE\\s+OR\\s+REPLACE\\s+FUNCTION\\s+(\\w+)", Pattern.CASE_INSENSITIVE);
 
+    private static final String DEFAULT_API_URL = "https://api.anthropic.com/v1/messages";
+    private static final int DEFAULT_MAX_TOKENS = 8192;
+
     private final String apiKey;
     private final String model;
+    private final String apiUrl;
+    private final int maxTokens;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
 
     public ClaudeProvider(String apiKey, String model) {
+        this(apiKey, model, DEFAULT_API_URL, DEFAULT_MAX_TOKENS);
+    }
+
+    public ClaudeProvider(String apiKey, String model, int maxTokens) {
+        this(apiKey, model, DEFAULT_API_URL, maxTokens);
+    }
+
+    ClaudeProvider(String apiKey, String model, String apiUrl, int maxTokens) {
         this.apiKey = apiKey;
         this.model = model != null ? model : "claude-sonnet-4-20250514";
+        this.apiUrl = apiUrl;
+        this.maxTokens = maxTokens;
         this.httpClient = HttpClient.newHttpClient();
         this.objectMapper = new ObjectMapper();
     }
@@ -39,7 +53,7 @@ public class ClaudeProvider implements AiProvider {
             String requestBody = buildRequestJson(prompt);
 
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(API_URL))
+                    .uri(URI.create(apiUrl))
                     .header("Content-Type", "application/json")
                     .header("x-api-key", apiKey)
                     .header("anthropic-version", "2023-06-01")
@@ -55,7 +69,10 @@ public class ClaudeProvider implements AiProvider {
                                 + ": " + response.body());
             }
 
-            String sql = extractSqlFromResponse(response.body());
+            JsonNode root = objectMapper.readTree(response.body());
+            checkNotTruncated(root);
+
+            String sql = extractSqlFromResponse(root);
             String functionName = extractFunctionName(sql);
 
             return new GeneratedFunction(functionName, sql, null);
@@ -64,10 +81,27 @@ public class ClaudeProvider implements AiProvider {
         }
     }
 
+    /**
+     * Rejects a response Claude stopped emitting because it hit {@code max_tokens}: the
+     * function definition is cut off mid-stream, so deploying it would install a broken
+     * (or, worse, silently partial) function.
+     */
+    private void checkNotTruncated(JsonNode root) {
+        JsonNode stopReason = root.get("stop_reason");
+        if (stopReason != null && "max_tokens".equals(stopReason.asText())) {
+            throw new GeneratorException(
+                    "Claude response was truncated at max_tokens (" + maxTokens
+                            + "); the generated function is incomplete and was not deployed."
+                            + " Simplify the method spec or raise the token limit.");
+        }
+    }
+
     private String buildRequestJson(String prompt) throws IOException {
         var requestNode = objectMapper.createObjectNode();
         requestNode.put("model", model);
-        requestNode.put("max_tokens", 4096);
+        requestNode.put("max_tokens", maxTokens);
+        // temperature 0 makes generation near-deterministic, minimizing run-to-run drift.
+        requestNode.put("temperature", 0);
 
         var messages = requestNode.putArray("messages");
         var message = messages.addObject();
@@ -77,8 +111,7 @@ public class ClaudeProvider implements AiProvider {
         return objectMapper.writeValueAsString(requestNode);
     }
 
-    private String extractSqlFromResponse(String responseBody) throws IOException {
-        JsonNode root = objectMapper.readTree(responseBody);
+    private String extractSqlFromResponse(JsonNode root) {
         JsonNode content = root.get("content");
         if (content == null || !content.isArray() || content.isEmpty()) {
             throw new GeneratorException("Unexpected Claude API response: no content");
@@ -86,12 +119,22 @@ public class ClaudeProvider implements AiProvider {
 
         StringBuilder sql = new StringBuilder();
         for (JsonNode block : content) {
-            if ("text".equals(block.get("type").asText())) {
-                sql.append(block.get("text").asText());
+            JsonNode type = block.get("type");
+            if (type != null && "text".equals(type.asText())) {
+                JsonNode text = block.get("text");
+                if (text != null) {
+                    sql.append(text.asText());
+                }
             }
         }
 
         String result = sql.toString().trim();
+        if (result.isEmpty()) {
+            // No text block (e.g. a refusal or tool_use response): there is no SQL to deploy.
+            throw new GeneratorException(
+                    "Claude response contained no text content (stop_reason="
+                            + root.path("stop_reason").asText("unknown") + ")");
+        }
         // Strip markdown code fences if present
         if (result.startsWith("```")) {
             result = result.replaceAll("^```\\w*\\n?", "").replaceAll("\\n?```$", "").trim();

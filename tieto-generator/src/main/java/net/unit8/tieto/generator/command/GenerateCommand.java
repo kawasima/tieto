@@ -68,12 +68,19 @@ public class GenerateCommand implements Callable<Integer> {
     private String aiApiKey;
 
     @Option(names = "--ai-model",
-            description = "AI model override")
+            description = "AI model override. Targets standard chat models (e.g. gpt-4o, "
+                    + "claude-sonnet-4); OpenAI reasoning models (o1/o3) are not supported "
+                    + "because they reject max_tokens and a non-default temperature.")
     private String aiModel;
 
     @Option(names = "--ai-command",
             description = "Custom CLI command for AI generation (e.g. \"ollama run codellama\")")
     private String aiCommand;
+
+    @Option(names = "--ai-max-tokens", defaultValue = "8192",
+            description = "Max output tokens for API providers (claude, openai). Raise this if a"
+                    + " large function is rejected as truncated. Default: ${DEFAULT-VALUE}")
+    private int aiMaxTokens;
 
     @Option(names = "--output-dir", defaultValue = "sql/",
             description = "Output directory for generated SQL files")
@@ -270,6 +277,9 @@ public class GenerateCommand implements Callable<Integer> {
             throw new GeneratorException(
                     "--ai-api-key is required for provider: " + aiProvider);
         }
-        return AiProviderFactory.create(aiProvider, aiApiKey, aiModel);
+        if (aiMaxTokens < 1) {
+            throw new GeneratorException("--ai-max-tokens must be at least 1, was " + aiMaxTokens);
+        }
+        return AiProviderFactory.create(aiProvider, aiApiKey, aiModel, aiMaxTokens);
     }
 }

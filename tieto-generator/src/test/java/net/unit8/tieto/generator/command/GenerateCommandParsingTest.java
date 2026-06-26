@@ -21,4 +21,17 @@ class GenerateCommandParsingTest {
                 "--db-user", "tieto"))
                 .doesNotThrowAnyException();
     }
+
+    @Test
+    void acceptsAnOverriddenAiMaxTokens() {
+        CommandLine cmd = new CommandLine(new GenerateCommand());
+
+        assertThatCode(() -> cmd.parseArgs(
+                "--source-dir", "src/main/java",
+                "--repository", "com.example.OrderRepository",
+                "--db-url", "jdbc:postgresql://localhost:5432/db",
+                "--db-user", "tieto",
+                "--ai-max-tokens", "16384"))
+                .doesNotThrowAnyException();
+    }
 }
