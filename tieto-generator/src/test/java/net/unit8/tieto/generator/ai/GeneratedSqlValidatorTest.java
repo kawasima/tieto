@@ -284,6 +284,16 @@ class GeneratedSqlValidatorTest {
     }
 
     @Test
+    void rejectsAMainThatBindsAVariableOtherThanSpec() {
+        String main = "BEGIN RETURN QUERY EXECUTE 'SELECT to_jsonb(o) FROM orders o WHERE '"
+                + " || order_repository_find_by_v1_spec_to_sql(spec, '{}'::text[]) USING other_var; END";
+        assertThatThrownBy(() -> validator.validate(
+                specSql(main, SAFE_HELPER), "order_repository_find_by_v1", true))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("spec");
+    }
+
+    @Test
     void rejectsAMainWhoseUsingIsOnlyInAComment() {
         String main = "BEGIN -- TODO: bind with USING spec later\n"
                 + "RETURN QUERY EXECUTE ('SELECT 1'); END";

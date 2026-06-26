@@ -80,9 +80,9 @@ public final class GeneratedSqlValidator {
             if (allowSpecHelper) {
                 String body = functionBody(statement);
                 if (body == null) {
-                    throw new GeneratorException(name + " has no dollar-quoted ($$) body to"
-                            + " verify; spec functions must use AS $$ ... $$ so the parameterized"
-                            + " contract can be checked.");
+                    throw new GeneratorException(name + " has no dollar-quoted body to verify;"
+                            + " spec functions must use a dollar-quoted body (AS $$ ... $$ or"
+                            + " AS $tag$ ... $tag$) so the parameterized contract can be checked.");
                 }
                 // Parameterized-spec contract: neither function may extract a spec
                 // VALUE into the SQL it builds (only ->>'kind' for dispatch); the
@@ -117,6 +117,7 @@ public final class GeneratedSqlValidator {
     private static final Pattern EXECUTE_KW = Pattern.compile("(?i)\\bEXECUTE\\b");
     private static final Pattern USING_KW = Pattern.compile("(?i)\\bUSING\\b");
     private static final Pattern RETURNS_KW = Pattern.compile("(?i)\\bRETURNS\\b");
+    private static final Pattern SPEC_PARAM = Pattern.compile("(?i)\\bspec\\b");
 
     /**
      * Best-effort backstop for the parameterized-spec contract. The contract — spec
@@ -199,21 +200,25 @@ public final class GeneratedSqlValidator {
 
     /**
      * The main spec function builds a dynamic WHERE clause, so it must run it with the
-     * spec bound: {@code EXECUTE ... USING spec}. Checks for a USING that follows an
-     * EXECUTE in the code (strings/comments already removed), so the keywords cannot be
-     * satisfied by a stray word in a comment or literal.
+     * spec bound: {@code EXECUTE ... USING spec}. Looks for an EXECUTE whose own statement
+     * (up to the next {@code ;}) has a USING clause that binds {@code spec}. Strings and
+     * comments are already removed, so the keywords cannot be satisfied by a stray word in
+     * a comment or literal, and the USING must belong to the same statement as the EXECUTE.
      */
     private static void checkBindsViaUsing(String code, String functionName) {
         Matcher execute = EXECUTE_KW.matcher(code);
         while (execute.find()) {
-            if (USING_KW.matcher(code).find(execute.end())) {
+            int semicolon = code.indexOf(';', execute.end());
+            int stmtEnd = semicolon < 0 ? code.length() : semicolon;
+            String statement = code.substring(execute.end(), stmtEnd);
+            Matcher using = USING_KW.matcher(statement);
+            if (using.find() && SPEC_PARAM.matcher(statement).find(using.end())) {
                 return;
             }
         }
         throw new GeneratorException(
-                functionName + " must build its dynamic WHERE clause with EXECUTE ... USING"
-                        + " spec so spec values are bound, not concatenated"
-                        + " (no EXECUTE ... USING found).");
+                functionName + " must run its dynamic WHERE clause with EXECUTE ... USING spec"
+                        + " (binding the spec parameter) so spec values are bound, not concatenated.");
     }
 
     /** Reads the simple quoted/bare key immediately after a {@code ->>} at {@code from}, or null. */
