@@ -2,7 +2,6 @@ package net.unit8.tieto.generator.ai;
 
 import net.unit8.tieto.generator.parser.GeneratorException;
 
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -36,7 +35,6 @@ public class AiProviderFactory {
      * @return a CliAiProvider that invokes the given command
      */
     public static AiProvider createFromCommand(String command) {
-        List<String> parts = Arrays.asList(command.split("\\s+"));
-        return new CliAiProvider(parts);
+        return new CliAiProvider(CommandTokenizer.tokenize(command));
     }
 }
