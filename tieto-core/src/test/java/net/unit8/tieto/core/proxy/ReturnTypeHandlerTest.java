@@ -1,11 +1,13 @@
 package net.unit8.tieto.core.proxy;
 
+import net.unit8.tieto.core.exception.FunctionCallException;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ReturnTypeHandlerTest {
 
@@ -43,6 +45,22 @@ class ReturnTypeHandlerTest {
         assertThat(handler).isInstanceOf(ReturnTypeHandler.VoidHandler.class);
     }
 
+    @Test
+    void from_rejectsNestedGenericWithAClearError() throws NoSuchMethodException {
+        var method = TestRepo.class.getMethod("nestedGeneric");
+        assertThatThrownBy(() -> ReturnTypeHandler.from(method))
+                .isInstanceOf(FunctionCallException.class)
+                .hasMessageContaining("Unsupported return type");
+    }
+
+    @Test
+    void from_rejectsWildcardElementWithAClearError() throws NoSuchMethodException {
+        var method = TestRepo.class.getMethod("wildcard");
+        assertThatThrownBy(() -> ReturnTypeHandler.from(method))
+                .isInstanceOf(FunctionCallException.class)
+                .hasMessageContaining("Unsupported return type");
+    }
+
     // Test types
     record TestEntity(Long id, String name) {}
 
@@ -51,5 +69,7 @@ class ReturnTypeHandlerTest {
         Optional<TestEntity> findById(Long id);
         TestEntity getById(Long id);
         void save(TestEntity entity);
+        List<Optional<TestEntity>> nestedGeneric();
+        List<? extends TestEntity> wildcard();
     }
 }
