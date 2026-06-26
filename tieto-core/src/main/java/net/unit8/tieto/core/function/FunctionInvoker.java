@@ -83,6 +83,11 @@ public final class FunctionInvoker {
             ParameterInfo info = paramInfos.get(i);
             Object arg = args[i];
 
+            // Unwrap Optional<E> to its value (empty -> null), then bind as E.
+            if (info.isOptional() && arg instanceof java.util.Optional<?> opt) {
+                arg = opt.orElse(null);
+            }
+
             if (arg == null) {
                 ps.setNull(i + 1, Types.NULL);
             } else if (info.isDomainObject()) {
