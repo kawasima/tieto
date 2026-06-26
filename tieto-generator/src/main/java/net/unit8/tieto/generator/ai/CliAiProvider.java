@@ -12,8 +12,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * AI provider that delegates to an external CLI command (e.g. {@code claude --print}).
@@ -23,9 +21,6 @@ import java.util.regex.Pattern;
  * authentication without managing API keys.</p>
  */
 public final class CliAiProvider implements AiProvider {
-
-    private static final Pattern FUNCTION_NAME_PATTERN =
-            Pattern.compile("CREATE\\s+OR\\s+REPLACE\\s+FUNCTION\\s+(\\w+)", Pattern.CASE_INSENSITIVE);
 
     private final List<String> command;
     private final long timeoutSeconds;
@@ -100,8 +95,8 @@ public final class CliAiProvider implements AiProvider {
                                 + (errorOutput.isEmpty() ? "" : "\nstderr: " + errorOutput));
             }
 
-            String sql = stripMarkdownFences(output.trim());
-            return new GeneratedFunction(extractFunctionName(sql), sql, null);
+            String sql = ResponseSql.stripMarkdownFences(output.trim());
+            return new GeneratedFunction(ResponseSql.extractFunctionName(sql), sql, null);
         } catch (IOException e) {
             throw new GeneratorException(
                     "Failed to execute CLI command: " + String.join(" ", command), e);
@@ -118,20 +113,5 @@ public final class CliAiProvider implements AiProvider {
             }
             pool.shutdownNow();
         }
-    }
-
-    private static String stripMarkdownFences(String text) {
-        if (text.startsWith("```")) {
-            text = text.replaceAll("^```\\w*\\n?", "").replaceAll("\\n?```$", "").trim();
-        }
-        return text;
-    }
-
-    private static String extractFunctionName(String sql) {
-        Matcher matcher = FUNCTION_NAME_PATTERN.matcher(sql);
-        if (matcher.find()) {
-            return matcher.group(1);
-        }
-        return "unknown_function";
     }
 }
