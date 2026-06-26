@@ -1,10 +1,11 @@
 package net.unit8.tieto.core;
 
-import net.unit8.tieto.core.connection.ConnectionProvider;
 import net.unit8.tieto.core.function.DefaultFunctionNameResolver;
 import net.unit8.tieto.core.function.FunctionNameResolver;
 import net.unit8.tieto.core.mapper.DomainMapper;
 import net.unit8.tieto.core.mapper.MapperRegistry;
+
+import javax.sql.DataSource;
 
 /**
  * Builder for {@link TietoClient}.
@@ -17,12 +18,12 @@ import net.unit8.tieto.core.mapper.MapperRegistry;
  */
 public final class TietoClientBuilder {
 
-    private final ConnectionProvider connectionProvider;
+    private final DataSource dataSource;
     private final MapperRegistry.Builder mapperRegistryBuilder = MapperRegistry.builder();
     private FunctionNameResolver functionNameResolver = new DefaultFunctionNameResolver();
 
-    TietoClientBuilder(ConnectionProvider connectionProvider) {
-        this.connectionProvider = connectionProvider;
+    TietoClientBuilder(DataSource dataSource) {
+        this.dataSource = dataSource;
     }
 
     /**
@@ -45,7 +46,7 @@ public final class TietoClientBuilder {
 
     public TietoClient build() {
         return new TietoClient(
-                connectionProvider,
+                dataSource,
                 mapperRegistryBuilder.build(),
                 functionNameResolver
         );

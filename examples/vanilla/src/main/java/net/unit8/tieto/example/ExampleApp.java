@@ -1,7 +1,7 @@
 package net.unit8.tieto.example;
 
 import net.unit8.tieto.core.TietoClient;
-import net.unit8.tieto.core.connection.TransactionContext;
+import net.unit8.tieto.core.connection.TietoDataSource;
 import net.unit8.tieto.example.domain.Order;
 import net.unit8.tieto.example.domain.OrderLine;
 import net.unit8.tieto.example.domain.OrderRepository;
@@ -24,7 +24,7 @@ import java.util.Optional;
 public class ExampleApp {
 
     public static void main(String[] args) throws Exception {
-        DataSource dataSource = createDataSource();
+        TietoDataSource dataSource = new TietoDataSource(createDataSource());
         TietoClient tieto = TietoClient.builder(dataSource).build();
         OrderRepository orderRepo = tieto.createRepository(OrderRepository.class);
 
@@ -52,8 +52,7 @@ public class ExampleApp {
 
         // 3. Save a new order (with transaction)
         System.out.println("\n--- save(new order) ---");
-        TransactionContext.begin(dataSource);
-        try {
+        dataSource.inTransaction(() -> {
             Order newOrder = new Order(
                     null,
                     "CUST-003",
@@ -65,12 +64,9 @@ public class ExampleApp {
                     LocalDateTime.now()
             );
             orderRepo.save(newOrder);
-            TransactionContext.commit();
-            System.out.println("  Saved successfully");
-        } catch (Exception e) {
-            TransactionContext.rollback();
-            throw e;
-        }
+            return null;
+        });
+        System.out.println("  Saved successfully");
 
         // 4. Verify the saved order
         System.out.println("\n--- findByCustomerId(\"CUST-003\") ---");
@@ -85,15 +81,11 @@ public class ExampleApp {
         // 5. Update status
         System.out.println("\n--- updateStatus ---");
         Long savedOrderId = newCustOrders.getFirst().id();
-        TransactionContext.begin(dataSource);
-        try {
+        dataSource.inTransaction(() -> {
             orderRepo.updateStatus(savedOrderId, OrderStatus.CONFIRMED);
-            TransactionContext.commit();
-            System.out.println("  Updated order #" + savedOrderId + " to CONFIRMED");
-        } catch (Exception e) {
-            TransactionContext.rollback();
-            throw e;
-        }
+            return null;
+        });
+        System.out.println("  Updated order #" + savedOrderId + " to CONFIRMED");
 
         // 6. Verify status update
         Optional<Order> updated = orderRepo.findById(savedOrderId);

@@ -1,13 +1,12 @@
 package net.unit8.tieto.core;
 
-import net.unit8.tieto.core.connection.ConnectionProvider;
-import net.unit8.tieto.core.connection.DataSourceConnectionProvider;
 import net.unit8.tieto.core.function.FunctionNameResolver;
 import net.unit8.tieto.core.mapper.MapperRegistry;
 import net.unit8.tieto.core.proxy.RepositoryInvocationHandler;
 
 import javax.sql.DataSource;
 import java.lang.reflect.Proxy;
+import java.util.Objects;
 
 /**
  * Main entry point for tieto. Creates dynamic proxy implementations of
@@ -21,31 +20,27 @@ import java.lang.reflect.Proxy;
  */
 public final class TietoClient {
 
-    private final ConnectionProvider connectionProvider;
+    private final DataSource dataSource;
     private final MapperRegistry mapperRegistry;
     private final FunctionNameResolver functionNameResolver;
 
-    TietoClient(ConnectionProvider connectionProvider,
+    TietoClient(DataSource dataSource,
                 MapperRegistry mapperRegistry,
                 FunctionNameResolver functionNameResolver) {
-        this.connectionProvider = connectionProvider;
+        this.dataSource = dataSource;
         this.mapperRegistry = mapperRegistry;
         this.functionNameResolver = functionNameResolver;
     }
 
     /**
      * Creates a builder backed by the given DataSource.
+     *
+     * <p>For transaction-aware behavior, pass a transaction-aware DataSource:
+     * {@link net.unit8.tieto.core.connection.TietoDataSource} for standalone use,
+     * or Spring's {@code TransactionAwareDataSourceProxy} under Spring.</p>
      */
     public static TietoClientBuilder builder(DataSource dataSource) {
-        return new TietoClientBuilder(new DataSourceConnectionProvider(dataSource));
-    }
-
-    /**
-     * Creates a builder backed by a custom ConnectionProvider.
-     * Useful for Spring integration or other frameworks.
-     */
-    public static TietoClientBuilder builder(ConnectionProvider connectionProvider) {
-        return new TietoClientBuilder(connectionProvider);
+        return new TietoClientBuilder(Objects.requireNonNull(dataSource, "dataSource must not be null"));
     }
 
     /**
@@ -67,7 +62,7 @@ public final class TietoClient {
                 new Class<?>[]{repositoryInterface},
                 new RepositoryInvocationHandler(
                         repositoryInterface,
-                        connectionProvider,
+                        dataSource,
                         mapperRegistry,
                         functionNameResolver
                 )
