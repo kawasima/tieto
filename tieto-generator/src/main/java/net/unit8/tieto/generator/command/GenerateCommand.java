@@ -161,7 +161,9 @@ public class GenerateCommand implements Callable<Integer> {
             }
             System.out.println("Deployed " + functions.size() + " functions to database");
         } else {
-            new SqlFileWriter().write(outputDir, repoSpec.simpleName(), functions);
+            // Non-force runs skip functions already in the file, so append the new ones
+            // to preserve them; --force regenerates everything, so rewrite the whole file.
+            new SqlFileWriter().write(outputDir, repoSpec.simpleName(), functions, force);
             System.out.println("Wrote SQL files to " + outputDir);
         }
 
