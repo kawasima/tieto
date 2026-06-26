@@ -23,7 +23,7 @@ public class PromptBuilder {
     public String build(RepositorySpec repo, MethodSpec method, List<TableInfo> schema) {
         String functionName = resolveFunctionName(repo, method);
         return """
-                You are a PostgreSQL expert. Generate a PostgreSQL function based on the \
+                You are a PostgreSQL expert. Generate the PostgreSQL function(s) based on the \
                 following specification.
 
                 ## Repository Interface
@@ -98,14 +98,7 @@ public class PromptBuilder {
                     sb.append("Description: ").append(def.javadoc().strip()).append('\n');
                 }
                 sb.append("Node kinds:\n");
-                for (TypeDef sub : def.subtypes()) {
-                    sb.append("  - kind=\"").append(sub.kind()).append("\"");
-                    sb.append(" fields: ").append(formatComponents(sub.components()));
-                    if (!sub.javadoc().isBlank()) {
-                        sb.append("  // ").append(sub.javadoc().strip().replaceAll("\\s+", " "));
-                    }
-                    sb.append('\n');
-                }
+                appendKinds(sb, def.subtypes());
             } else {
                 sb.append("\n## Parameter Type: ").append(p.name())
                         .append(" (").append(def.simpleName()).append(")\n");
@@ -113,6 +106,25 @@ public class PromptBuilder {
             }
         }
         return sb.toString();
+    }
+
+    /**
+     * Renders every node kind in the (possibly nested) sealed hierarchy. The SQL
+     * helper dispatches on "kind" regardless of nesting depth, so deeper
+     * subtypes are flattened into the same list.
+     */
+    private void appendKinds(StringBuilder sb, List<TypeDef> subtypes) {
+        for (TypeDef sub : subtypes) {
+            sb.append("  - kind=\"").append(sub.kind()).append("\"");
+            sb.append(" fields: ").append(formatComponents(sub.components()));
+            if (!sub.javadoc().isBlank()) {
+                sb.append("  // ").append(sub.javadoc().strip().replaceAll("\\s+", " "));
+            }
+            sb.append('\n');
+            if (!sub.subtypes().isEmpty()) {
+                appendKinds(sb, sub.subtypes());
+            }
+        }
     }
 
     private String formatComponents(List<ComponentDef> components) {
