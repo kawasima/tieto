@@ -7,8 +7,10 @@ import java.sql.SQLException;
 import java.util.logging.Logger;
 
 /**
- * Minimal {@link DataSource} stub for tests: every operation throws unless a
- * subclass overrides it. Subclasses typically override only {@link #getConnection()}.
+ * Minimal {@link DataSource} stub for tests. Subclasses typically override only
+ * {@link #getConnection()}; every other operation throws
+ * {@link UnsupportedOperationException}, except {@link #getLoginTimeout()} (returns
+ * {@code 0}) and {@link #isWrapperFor(Class)} (returns {@code false}).
  */
 public class StubDataSource implements DataSource {
 

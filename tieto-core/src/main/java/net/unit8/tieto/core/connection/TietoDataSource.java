@@ -3,6 +3,7 @@ package net.unit8.tieto.core.connection;
 import java.io.PrintWriter;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.util.Objects;
 import java.util.logging.Logger;
 import javax.sql.DataSource;
@@ -121,8 +122,8 @@ public final class TietoDataSource implements DataSource {
     }
 
     @Override
-    public Logger getParentLogger() {
-        return Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
+    public Logger getParentLogger() throws SQLFeatureNotSupportedException {
+        return target.getParentLogger();
     }
 
     @Override

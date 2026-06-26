@@ -120,11 +120,14 @@ class ConnectionReleaseIntegrationTest {
                     getClass().getClassLoader(),
                     new Class<?>[]{Connection.class},
                     (proxy, method, args) -> {
-                        if ("close".equals(method.getName()) && counted.compareAndSet(true, false)) {
-                            open.decrementAndGet();
-                        }
                         try {
-                            return method.invoke(real, args);
+                            Object result = method.invoke(real, args);
+                            // Decrement only after a successful close, so a
+                            // failed close() does not hide a still-open connection.
+                            if ("close".equals(method.getName()) && counted.compareAndSet(true, false)) {
+                                open.decrementAndGet();
+                            }
+                            return result;
                         } catch (InvocationTargetException e) {
                             throw e.getCause();
                         }
