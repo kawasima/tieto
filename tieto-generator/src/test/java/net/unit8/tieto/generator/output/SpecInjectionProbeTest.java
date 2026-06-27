@@ -42,13 +42,13 @@ class SpecInjectionProbeTest {
 
     @Test
     void probeSpecsForProbesEveryStringLeafWrappedInAnAnd() {
-        TypeDef spec = new TypeDef("OrderSpec", null, true, "", List.of(), List.of(
-                new TypeDef("And", "and", false, "", List.of(), List.of()),
-                new TypeDef("HighValue", "highValue", false, "",
+        TypeDef spec = new TypeDef("OrderSpec", "OrderSpec", null, true, "", List.of(), List.of(
+                new TypeDef("And", "And", "and", false, "", List.of(), List.of()),
+                new TypeDef("HighValue", "HighValue", "highValue", false, "",
                         List.of(new ComponentDef("min", "BigDecimal")), List.of()),
-                new TypeDef("ForCustomer", "forCustomer", false, "",
+                new TypeDef("ForCustomer", "ForCustomer", "forCustomer", false, "",
                         List.of(new ComponentDef("customerId", "String")), List.of()),
-                new TypeDef("ByName", "byName", false, "",
+                new TypeDef("ByName", "ByName", "byName", false, "",
                         List.of(new ComponentDef("name", "String")), List.of())));
 
         // One probe per String leaf (customerId, name); numeric 'min' is not probed;

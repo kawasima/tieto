@@ -99,8 +99,13 @@ public final class TypeResolver {
             }
         }
 
+        String qualifiedName = unit.getPackageDeclaration()
+                .map(pd -> pd.getNameAsString() + "." + decl.getNameAsString())
+                .orElse(decl.getNameAsString());
+
         return new TypeDef(
                 decl.getNameAsString(),
+                qualifiedName,
                 kind,
                 sealed,
                 javadoc,

@@ -119,6 +119,22 @@ The AI reads the Repository interface Javadoc + the live database schema and pro
 
 If a function version already exists in the database, it is skipped. Use `--force` to regenerate.
 
+#### Verifying generated functions
+
+The generator does not deploy AI output blindly. In `deploy` mode every function is created and verified inside a single transaction, and the deploy is committed only if every check passes — any failure rolls the whole batch back, so the database is never left with an unverified function:
+
+- **Signature check** — the function's SETOF-ness (a `List<T>` method must be `RETURNS SETOF`), void-ness (a `void` method must be `RETURNS VOID`), and argument count must match the Java method. These are the parts unambiguous from the method shape, so the check never false-rejects a correct function; the exact return base type and per-argument types are left to the behavioral checks below, since the generator and tieto-core classify enums, generics, and scalars differently.
+- **Read smoke** — read methods with simple arguments are called once with synthesized values. PostgreSQL resolves a plpgsql body's table/column references only on first call, so this surfaces a body that references a missing column or wrong table — errors that survive `CREATE`. Only a broken body (a SQLSTATE class-42 error) fails the deploy; an error from the synthesized value itself (no row for `INTO STRICT`, a value that isn't a valid enum/number) is tolerated. Writes and methods taking a domain/Specification argument are not smoked (synthetic data cannot be guaranteed to satisfy constraints).
+- **Injection probe** — Specification functions are called with a single-quote leaf value to prove leaf values are bound, not concatenated.
+
+For domain-level verification — does the Repository behave correctly with real domain objects? — generate a round-trip test:
+
+```bash
+tieto generate ... --emit-test
+```
+
+This emits a JUnit + Testcontainers test (`<Repo>RoundTripTest.java`) plus the functions as a test resource. In `deploy` mode the resource is read back complete from the database (`pg_get_functiondef`), so it includes every repository function regardless of how many were regenerated this run. The test drives the Repository through the real tieto-core proxy against a PostgreSQL container loaded with your schema and seed data. Finders with simple arguments get an automatic smoke assertion; a `save` paired with a finder that reads back by one of the saved object's fields gets an automatic round-trip assertion; everything else is a `@Disabled` scaffold with a `// TODO` to fill in (building a valid aggregate that satisfies foreign keys is left to you). The test source is not overwritten on regeneration unless `--force` (so your edits survive), and `--emit-test` works even when all functions already exist. Customize the layout with `--test-output-dir`, `--test-resources-dir`, `--schema-sql`, and `--seed-sql`.
+
 The `tieto` command is built as a [Really Executable JAR](https://picocli.info/#_really_executable_jar):
 
 ```bash
