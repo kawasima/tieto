@@ -68,34 +68,46 @@ public final class TietoDataSource implements DataSource {
         }
         Connection conn = target.getConnection();
         boolean priorAutoCommit = true;
+        boolean autoCommitChanged = false;
+        boolean resolved = false;   // the transaction was definitively committed or rolled back
         try {
             priorAutoCommit = conn.getAutoCommit();
-            conn.setAutoCommit(false);
+            if (priorAutoCommit) {
+                conn.setAutoCommit(false);
+                autoCommitChanged = true;
+            }
             R result = binding.runBound(conn, work);
             conn.commit();
+            resolved = true;
             return result;
         } catch (Throwable t) {
             try {
                 conn.rollback();
+                resolved = true;
             } catch (SQLException e) {
-                t.addSuppressed(e);
+                t.addSuppressed(e);   // leave resolved=false: there may be in-doubt work
             }
             throw t;
         } finally {
-            // Restore autoCommit before returning the Connection to the target.
-            // A pool that does not reset connection state on close would otherwise
-            // hand this Connection back with autoCommit=false, silently discarding
-            // a later non-transactional write. Restore must precede close.
             try {
-                conn.setAutoCommit(priorAutoCommit);
-            } catch (SQLException ignored) {
-                // Best-effort; the Connection is being returned/discarded anyway.
-            }
-            try {
-                conn.close();
-            } catch (SQLException ignored) {
-                // The transaction is finished and the Connection is being
-                // discarded; a close failure here is not actionable.
+                // Restore autoCommit before returning the Connection to the target: a pool
+                // that does not reset connection state on close would otherwise hand it back
+                // with autoCommit=false, silently discarding a later non-transactional write.
+                // Only when we changed it (so a genuinely autoCommit=false connection is left
+                // alone) and the transaction was resolved (so flipping autoCommit cannot commit
+                // in-doubt work that a failed rollback left pending).
+                if (autoCommitChanged && resolved) {
+                    conn.setAutoCommit(priorAutoCommit);
+                }
+            } catch (SQLException | RuntimeException ignored) {
+                // Best-effort; must not prevent the Connection from being returned/closed.
+            } finally {
+                try {
+                    conn.close();
+                } catch (SQLException ignored) {
+                    // The transaction is finished and the Connection is being
+                    // discarded; a close failure here is not actionable.
+                }
             }
         }
     }

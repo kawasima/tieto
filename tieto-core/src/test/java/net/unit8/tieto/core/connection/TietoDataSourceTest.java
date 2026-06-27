@@ -7,25 +7,36 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Verifies that {@link TietoDataSource#inTransaction} restores the Connection's
- * {@code autoCommit} to its prior value before returning it to the target, so a
- * pool that does not reset connection state cannot hand it back with
- * {@code autoCommit=false} and silently discard a later non-transactional write.
+ * Verifies that {@link TietoDataSource#inTransaction} returns the Connection to
+ * the target in a safe state: autoCommit is restored to its prior value (so a
+ * non-resetting pool cannot silently discard a later non-transactional write),
+ * but only when doing so is safe — it never flips a genuinely autoCommit=false
+ * connection, never commits in-doubt work after a failed rollback, and always
+ * closes the Connection even if the restore fails.
  */
 class TietoDataSourceTest {
 
-    /** A Connection proxy that records autoCommit transitions and the close lifecycle. */
+    /** A Connection proxy that records the autoCommit lifecycle and can be told to fail. */
     private static final class Recording implements InvocationHandler {
         boolean autoCommit;
         boolean closed;
         int commits;
         int rollbacks;
-        Boolean autoCommitAtClose;   // autoCommit value captured at the moment close() ran
+        Boolean autoCommitAtClose;
+        final List<Boolean> setAutoCommitValues = new ArrayList<>();
+
+        boolean throwOnGetAutoCommit;
+        boolean throwOnCommit;
+        boolean throwOnRollback;
+        boolean throwUncheckedOnSetAutoCommitTrue;
 
         Recording(boolean initialAutoCommit) {
             this.autoCommit = initialAutoCommit;
@@ -37,29 +48,48 @@ class TietoDataSourceTest {
         }
 
         @Override
-        public Object invoke(Object proxy, Method method, Object[] args) {
-            return switch (method.getName()) {
-                case "getAutoCommit" -> autoCommit;
-                case "setAutoCommit" -> {
-                    autoCommit = (boolean) args[0];
-                    yield null;
-                }
-                case "commit" -> {
+        public Object invoke(Object proxy, Method method, Object[] args) throws SQLException {
+            switch (method.getName()) {
+                case "getAutoCommit":
+                    if (throwOnGetAutoCommit) {
+                        throw new SQLException("getAutoCommit failed");
+                    }
+                    return autoCommit;
+                case "setAutoCommit":
+                    boolean value = (boolean) args[0];
+                    setAutoCommitValues.add(value);
+                    if (value && throwUncheckedOnSetAutoCommitTrue) {
+                        throw new IllegalStateException("connection closed by pool");
+                    }
+                    autoCommit = value;
+                    return null;
+                case "commit":
                     commits++;
-                    yield null;
-                }
-                case "rollback" -> {
+                    if (throwOnCommit) {
+                        throw new SQLException("commit failed");
+                    }
+                    return null;
+                case "rollback":
                     rollbacks++;
-                    yield null;
-                }
-                case "close" -> {
+                    if (throwOnRollback) {
+                        throw new SQLException("rollback failed");
+                    }
+                    return null;
+                case "close":
                     closed = true;
                     autoCommitAtClose = autoCommit;
-                    yield null;
-                }
-                case "isClosed" -> closed;
-                default -> null;
-            };
+                    return null;
+                case "isClosed":
+                    return closed;
+                case "toString":
+                    return "Recording";
+                case "hashCode":
+                    return System.identityHashCode(proxy);
+                case "equals":
+                    return proxy == args[0];
+                default:
+                    throw new UnsupportedOperationException("unexpected call: " + method.getName());
+            }
         }
     }
 
@@ -102,15 +132,85 @@ class TietoDataSourceTest {
     }
 
     @Test
-    void restoresThePriorValueWhenItWasNotTrue() throws Exception {
-        // A pool may hand out a Connection that is already autoCommit=false; the
-        // prior value must be restored, not hardcoded to true.
+    void leavesAnAlreadyAutoCommitFalseConnectionUntouched() throws Exception {
+        // A pool may hand out a Connection already at autoCommit=false; we must not
+        // flip it to true, and need not change it at all.
         Recording rec = new Recording(false);
         TietoDataSource dataSource = dataSourceReturning(rec.proxy());
 
         dataSource.inTransaction(() -> null);
 
-        assertThat(rec.autoCommitAtClose).isFalse();
+        assertThat(rec.setAutoCommitValues).as("never touched autoCommit").isEmpty();
         assertThat(rec.autoCommit).isFalse();
+        assertThat(rec.closed).isTrue();
+    }
+
+    @Test
+    void doesNotForceCommitWhenRollbackFails() {
+        // commit fails, then rollback fails: there may be in-doubt work, so autoCommit
+        // must NOT be flipped to true (that would commit it). close() handles the rest.
+        Recording rec = new Recording(true);
+        rec.throwOnCommit = true;
+        rec.throwOnRollback = true;
+        TietoDataSource dataSource = dataSourceReturning(rec.proxy());
+
+        assertThatThrownBy(() -> dataSource.inTransaction(() -> null))
+                .isInstanceOf(SQLException.class)
+                .hasMessage("commit failed");
+
+        assertThat(rec.setAutoCommitValues).as("only the initial setAutoCommit(false), no restore-to-true")
+                .containsExactly(false);
+        assertThat(rec.closed).as("connection still closed/returned").isTrue();
+    }
+
+    @Test
+    void stillClosesWhenRestoringAutoCommitThrowsUnchecked() throws Exception {
+        // A pool proxy may throw an unchecked exception from setAutoCommit; that must not
+        // prevent the Connection from being closed/returned.
+        Recording rec = new Recording(true);
+        rec.throwUncheckedOnSetAutoCommitTrue = true;
+        TietoDataSource dataSource = dataSourceReturning(rec.proxy());
+
+        dataSource.inTransaction(() -> null);   // restore throws, but is swallowed
+
+        assertThat(rec.commits).isEqualTo(1);
+        assertThat(rec.closed).as("closed despite the restore failure").isTrue();
+    }
+
+    @Test
+    void doesNotFlipTheConnectionWhenGetAutoCommitThrows() {
+        // If getAutoCommit() throws, we never changed autoCommit, so we must leave it alone.
+        Recording rec = new Recording(false);
+        rec.throwOnGetAutoCommit = true;
+        TietoDataSource dataSource = dataSourceReturning(rec.proxy());
+
+        assertThatThrownBy(() -> dataSource.inTransaction(() -> null))
+                .isInstanceOf(SQLException.class);
+
+        assertThat(rec.setAutoCommitValues).as("connection left untouched").isEmpty();
+        assertThat(rec.closed).isTrue();
+    }
+
+    @Test
+    void aNestedTransactionJoinsWithoutOpeningOrCommittingASecondTime() throws Exception {
+        Recording rec = new Recording(true);
+        TietoDataSource dataSource = dataSourceReturning(rec.proxy());
+
+        boolean[] innerRan = {false};
+        dataSource.inTransaction(() -> {
+            try {
+                dataSource.inTransaction(() -> {
+                    innerRan[0] = true;   // joins the enclosing transaction
+                    return null;
+                });
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+            return null;
+        });
+
+        assertThat(innerRan[0]).isTrue();
+        assertThat(rec.commits).as("only the outer transaction commits").isEqualTo(1);
+        assertThat(rec.closed).isTrue();
     }
 }
