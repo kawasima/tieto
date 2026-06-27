@@ -67,7 +67,9 @@ public final class TietoDataSource implements DataSource {
             return work.execute();   // join the enclosing transaction
         }
         Connection conn = target.getConnection();
+        boolean priorAutoCommit = true;
         try {
+            priorAutoCommit = conn.getAutoCommit();
             conn.setAutoCommit(false);
             R result = binding.runBound(conn, work);
             conn.commit();
@@ -80,6 +82,15 @@ public final class TietoDataSource implements DataSource {
             }
             throw t;
         } finally {
+            // Restore autoCommit before returning the Connection to the target.
+            // A pool that does not reset connection state on close would otherwise
+            // hand this Connection back with autoCommit=false, silently discarding
+            // a later non-transactional write. Restore must precede close.
+            try {
+                conn.setAutoCommit(priorAutoCommit);
+            } catch (SQLException ignored) {
+                // Best-effort; the Connection is being returned/discarded anyway.
+            }
             try {
                 conn.close();
             } catch (SQLException ignored) {
