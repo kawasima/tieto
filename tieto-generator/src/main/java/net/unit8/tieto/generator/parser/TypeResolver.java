@@ -99,9 +99,9 @@ public final class TypeResolver {
             }
         }
 
-        String qualifiedName = unit.getPackageDeclaration()
-                .map(pd -> pd.getNameAsString() + "." + decl.getNameAsString())
-                .orElse(decl.getNameAsString());
+        // getFullyQualifiedName resolves the package and the full nesting chain
+        // (Outer.Inner), so a nested domain/spec type is referenced correctly.
+        String qualifiedName = decl.getFullyQualifiedName().orElse(decl.getNameAsString());
 
         return new TypeDef(
                 decl.getNameAsString(),

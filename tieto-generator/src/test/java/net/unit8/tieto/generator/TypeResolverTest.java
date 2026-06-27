@@ -85,6 +85,28 @@ class TypeResolverTest {
     }
 
     @Test
+    void qualifiedNameIncludesPackageAndEnclosingTypesForNestedTypes() throws IOException {
+        writeFooSpec();
+        CompilationUnit ctx = context("""
+                package com.ex.spec;
+                interface FooRepository { void findBy(FooSpec spec); }
+                """);
+
+        TypeDef def = new TypeResolver(sourceDir).resolve("FooSpec", ctx);
+        assertThat(def.qualifiedName()).isEqualTo("com.ex.spec.FooSpec");
+
+        TypeDef byName = def.subtypes().stream()
+                .filter(s -> s.kind().equals("byName")).findFirst().orElseThrow();
+        assertThat(byName.qualifiedName()).isEqualTo("com.ex.spec.FooSpec.ByName");
+
+        TypeDef range = def.subtypes().stream()
+                .filter(s -> s.kind().equals("range")).findFirst().orElseThrow();
+        TypeDef after = range.subtypes().stream()
+                .filter(s -> s.kind().equals("after")).findFirst().orElseThrow();
+        assertThat(after.qualifiedName()).isEqualTo("com.ex.spec.FooSpec.Range.After");
+    }
+
+    @Test
     void genericParameterTypeResolvesToNull() throws IOException {
         writeFooSpec();
         CompilationUnit ctx = context("""
