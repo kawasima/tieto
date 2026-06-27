@@ -67,24 +67,47 @@ public final class TietoDataSource implements DataSource {
             return work.execute();   // join the enclosing transaction
         }
         Connection conn = target.getConnection();
+        boolean priorAutoCommit = true;
+        boolean autoCommitChanged = false;
+        boolean resolved = false;   // the transaction was definitively committed or rolled back
         try {
-            conn.setAutoCommit(false);
+            priorAutoCommit = conn.getAutoCommit();
+            if (priorAutoCommit) {
+                conn.setAutoCommit(false);
+                autoCommitChanged = true;
+            }
             R result = binding.runBound(conn, work);
             conn.commit();
+            resolved = true;
             return result;
         } catch (Throwable t) {
             try {
                 conn.rollback();
+                resolved = true;
             } catch (SQLException e) {
-                t.addSuppressed(e);
+                t.addSuppressed(e);   // leave resolved=false: there may be in-doubt work
             }
             throw t;
         } finally {
             try {
-                conn.close();
-            } catch (SQLException ignored) {
-                // The transaction is finished and the Connection is being
-                // discarded; a close failure here is not actionable.
+                // Restore autoCommit before returning the Connection to the target: a pool
+                // that does not reset connection state on close would otherwise hand it back
+                // with autoCommit=false, silently discarding a later non-transactional write.
+                // Only when we changed it (so a genuinely autoCommit=false connection is left
+                // alone) and the transaction was resolved (so flipping autoCommit cannot commit
+                // in-doubt work that a failed rollback left pending).
+                if (autoCommitChanged && resolved) {
+                    conn.setAutoCommit(priorAutoCommit);
+                }
+            } catch (SQLException | RuntimeException ignored) {
+                // Best-effort; must not prevent the Connection from being returned/closed.
+            } finally {
+                try {
+                    conn.close();
+                } catch (SQLException ignored) {
+                    // The transaction is finished and the Connection is being
+                    // discarded; a close failure here is not actionable.
+                }
             }
         }
     }
