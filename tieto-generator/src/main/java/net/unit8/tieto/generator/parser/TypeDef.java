@@ -13,16 +13,20 @@ import java.util.List;
  * it can derive WHERE conditions from the domain model and emit a recursive
  * function that interprets the JSONB tree.</p>
  *
- * @param simpleName  the simple type name
- * @param kind        the JSONB {@code "kind"} discriminator (camelCase simple
- *                    name); meaningful for spec subtypes, {@code null} otherwise
- * @param sealed      whether this is the root of a sealed hierarchy
- * @param javadoc     the type's Javadoc description (may be empty)
- * @param components  record components / fields (name + type)
- * @param subtypes    permitted subtypes for a sealed hierarchy (empty otherwise)
+ * @param simpleName    the simple type name
+ * @param qualifiedName the fully-qualified type name (package + simple name), or
+ *                      {@code null} when the package could not be determined; used
+ *                      to reference the type from generated code in any package
+ * @param kind          the JSONB {@code "kind"} discriminator (camelCase simple
+ *                      name); meaningful for spec subtypes, {@code null} otherwise
+ * @param sealed        whether this is the root of a sealed hierarchy
+ * @param javadoc       the type's Javadoc description (may be empty)
+ * @param components    record components / fields (name + type)
+ * @param subtypes      permitted subtypes for a sealed hierarchy (empty otherwise)
  */
 public record TypeDef(
         String simpleName,
+        String qualifiedName,
         String kind,
         boolean sealed,
         String javadoc,
