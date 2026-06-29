@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code EXECUTE ... USING spec}) treats a malicious spec value as a literal,
  * not as SQL, so it cannot break out of the {@code WHERE} clause.
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class SpecInjectionIntegrationTest {
 
     @Container

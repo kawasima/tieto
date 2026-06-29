@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Verifies the database existence check: it sees a function in the current schema,
  * is not fooled by a same-named function in another schema, and reports absent ones.
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class DeployedFunctionsDbIntegrationTest {
 
     @Container

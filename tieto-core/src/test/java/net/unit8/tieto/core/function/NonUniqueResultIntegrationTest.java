@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Verifies that a single-valued ({@code T}) or {@code Optional<T>} method rejects a
  * function that returns more than one row, rather than silently dropping the extras.
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class NonUniqueResultIntegrationTest {
 
     @Container

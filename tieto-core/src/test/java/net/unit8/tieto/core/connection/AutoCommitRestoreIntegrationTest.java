@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * a transaction restores autoCommit, a subsequent non-transactional write must be
  * committed and visible to an independent connection.</p>
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class AutoCommitRestoreIntegrationTest {
 
     @Container

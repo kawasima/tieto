@@ -20,8 +20,9 @@ Examples are standalone Maven projects (not submodules of the parent).
 
 - Java 21, Maven multi-module
 - `mvn install -DskipTests` to build all
-- `mvn test` to run all tests
-- `mvn -pl tieto-core test` to test a single module
+- `mvn test` runs the fast unit tests only — no Docker required, green on any box
+- `mvn verify` additionally runs the `*IntegrationTest` classes (Testcontainers/PostgreSQL) under failsafe; they need Docker and are skipped automatically when Docker is unavailable
+- `mvn -pl tieto-core test` to unit-test a single module (`verify` for its integration tests)
 
 ## Running the Examples
 

@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * error only arises with polymorphic operators like {@code WHERE col = ?}, which
  * tieto never generates.)</p>
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class NullParameterBindingIntegrationTest {
 
     @Container

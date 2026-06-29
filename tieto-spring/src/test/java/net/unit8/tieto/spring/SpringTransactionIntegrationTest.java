@@ -38,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * not on its own connection.</p>
  */
 @SpringJUnitConfig(SpringTransactionIntegrationTest.Config.class)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class SpringTransactionIntegrationTest {
 
     @Container

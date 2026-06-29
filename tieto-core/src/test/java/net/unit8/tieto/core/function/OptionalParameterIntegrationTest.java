@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code E}: a present Optional binds its value, an empty Optional binds SQL NULL.
  * The function reports {@code p_value IS NULL} so the binding is observed directly.
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class OptionalParameterIntegrationTest {
 
     @Container

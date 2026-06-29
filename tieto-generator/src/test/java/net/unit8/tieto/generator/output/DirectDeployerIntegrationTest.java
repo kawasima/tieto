@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Verifies that {@link DirectDeployer} deploys functions atomically: a batch
  * that fails partway leaves the database unchanged.
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class DirectDeployerIntegrationTest {
 
     @Container

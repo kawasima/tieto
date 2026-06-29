@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>A {@link CountingDataSource} wraps the real PostgreSQL connections so the
  * test can assert how many are physically open at any moment.</p>
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ConnectionReleaseIntegrationTest {
 
     @Container
