@@ -10,6 +10,9 @@ import org.postgresql.util.PGobject;
 
 import javax.sql.DataSource;
 import java.sql.*;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -103,6 +106,13 @@ public final class FunctionInvoker {
                 ps.setObject(i + 1, pgObj);
             } else if (arg instanceof Enum<?> enumVal) {
                 ps.setString(i + 1, enumVal.name());
+            } else if (arg instanceof Instant instant) {
+                // pgjdbc's setObject cannot infer a SQL type for Instant; bind it as
+                // the equivalent UTC OffsetDateTime (-> timestamptz), which it supports.
+                ps.setObject(i + 1, instant.atOffset(ZoneOffset.UTC));
+            } else if (arg instanceof ZonedDateTime zdt) {
+                // Same limitation; the offset preserves the instant when stored as timestamptz.
+                ps.setObject(i + 1, zdt.toOffsetDateTime());
             } else {
                 ps.setObject(i + 1, arg);
             }
