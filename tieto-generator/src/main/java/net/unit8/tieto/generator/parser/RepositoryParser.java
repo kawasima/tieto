@@ -8,11 +8,16 @@ import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.type.ClassOrInterfaceType;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Parses a Repository interface Java source file using JavaParser,
@@ -52,12 +57,64 @@ public class RepositoryParser {
                         "Interface not found: " + fullyQualifiedName));
 
         TypeResolver typeResolver = new TypeResolver(sourceDir);
-        List<MethodSpec> methods = iface.getMethods().stream()
-                .map(md -> toMethodSpec(md, cu, typeResolver))
+        List<MethodSpec> methods = collectMethods(iface, cu, typeResolver).stream()
+                .map(owned -> toMethodSpec(owned.method(), owned.unit(), typeResolver))
                 .toList();
 
         return new RepositorySpec(fullyQualifiedName, simpleName, methods);
     }
+
+    /**
+     * Collects the methods of the repository interface and every super-interface
+     * reachable through its {@code extends} clause. A method declared in a
+     * sub-interface shadows the same-signature method from a super-interface, so
+     * an override is emitted once. A super-interface whose source cannot be
+     * located (e.g. an external library interface like Spring Data's
+     * {@code CrudRepository}) is skipped with a warning rather than failing.
+     */
+    private List<OwnedMethod> collectMethods(ClassOrInterfaceDeclaration iface,
+                                             CompilationUnit unit, TypeResolver typeResolver) {
+        LinkedHashMap<String, OwnedMethod> bySignature = new LinkedHashMap<>();
+        collectInto(iface, unit, typeResolver, bySignature, new HashSet<>());
+        return new ArrayList<>(bySignature.values());
+    }
+
+    private void collectInto(ClassOrInterfaceDeclaration iface, CompilationUnit unit,
+                             TypeResolver typeResolver, LinkedHashMap<String, OwnedMethod> acc,
+                             Set<String> visited) {
+        String identity = iface.getFullyQualifiedName().orElse(iface.getNameAsString());
+        if (!visited.add(identity)) {
+            return;
+        }
+        // Sub-interface methods are recorded before recursing into supers, so an
+        // overriding declaration (same signature) wins over the inherited one.
+        for (MethodDeclaration md : iface.getMethods()) {
+            acc.putIfAbsent(signature(md), new OwnedMethod(md, unit));
+        }
+        for (ClassOrInterfaceType extended : iface.getExtendedTypes()) {
+            TypeResolver.SourceInterface superInterface =
+                    typeResolver.locateInterface(extended.getNameAsString(), unit);
+            if (superInterface != null) {
+                collectInto(superInterface.declaration(), superInterface.unit(),
+                        typeResolver, acc, visited);
+            } else {
+                System.err.println("Warning: cannot locate source for super-interface "
+                        + extended.getNameAsString() + " extended by " + iface.getNameAsString()
+                        + "; its inherited methods will not be generated");
+            }
+        }
+    }
+
+    /** Name plus erased parameter types — enough to detect an override. */
+    private static String signature(MethodDeclaration md) {
+        return md.getNameAsString() + "(" + md.getParameters().stream()
+                .map(p -> p.getType().asString())
+                .reduce((a, b) -> a + "," + b)
+                .orElse("") + ")";
+    }
+
+    /** A method declaration paired with the compilation unit that declares it. */
+    private record OwnedMethod(MethodDeclaration method, CompilationUnit unit) {}
 
     private MethodSpec toMethodSpec(MethodDeclaration md, CompilationUnit cu, TypeResolver typeResolver) {
         String javadoc = md.getJavadoc()
