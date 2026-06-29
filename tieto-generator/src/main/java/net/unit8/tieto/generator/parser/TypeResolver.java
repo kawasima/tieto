@@ -129,6 +129,27 @@ public final class TypeResolver {
     }
 
     /**
+     * Locates a super-interface declaration by simple name, reusing the same
+     * import/package/sibling-file resolution as parameter types. Returns the
+     * declaration together with the compilation unit that owns it, so the
+     * caller can resolve that interface's own imports and {@code extends}
+     * clause. Returns {@code null} when the source cannot be located (e.g. an
+     * external library interface) or the located type is not an interface.
+     */
+    SourceInterface locateInterface(String typeName, CompilationUnit context) {
+        Located located = locate(typeName, context);
+        if (located != null
+                && located.declaration() instanceof ClassOrInterfaceDeclaration cid
+                && cid.isInterface()) {
+            return new SourceInterface(cid, located.unit());
+        }
+        return null;
+    }
+
+    /** A located interface declaration paired with its owning compilation unit. */
+    record SourceInterface(ClassOrInterfaceDeclaration declaration, CompilationUnit unit) {}
+
+    /**
      * Locates a type declaration by simple name: first among the types declared
      * in the given unit (including nested), then as a sibling source file.
      */
