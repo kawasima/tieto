@@ -245,6 +245,24 @@ This `"kind"` tag is added by convention during serialization — the Specificat
 
 tieto-core logs through the [SLF4J](https://www.slf4j.org/) API only; the host application supplies the binding (Logback, Log4j2, …). Enable `DEBUG` for `net.unit8.tieto` to see, per call, the resolved function name and its argument *shapes* (parameter types and cardinality — never the values), connection acquisition, and transaction begin/join/commit/rollback. A failed call logs at `WARN` with the elapsed time and the PostgreSQL `SQLSTATE`. Calls slower than 1000 ms log at `WARN`; tune or disable that with `-Dtieto.slow-call-threshold-ms=<ms>` (`0` disables it).
 
+## Tuning invocation
+
+Each function call is bounded by a **query timeout** so a hung function (lock wait, runaway plpgsql) cannot pin the calling thread and its pooled connection indefinitely — the driver cancels the statement and the call fails. The default is 30 seconds. A **fetch size** for `SETOF` (`List<T>`) reads can also be set so a large result set is read in batches rather than materialized at once (pgjdbc fetches by cursor only inside a transaction).
+
+Both default from system properties and can be overridden per client on the builder:
+
+```java
+TietoClient tieto = TietoClient.builder(dataSource)
+    .queryTimeoutSeconds(10)   // 0 disables the timeout
+    .fetchSize(500)            // 0 keeps the driver default
+    .build();
+```
+
+| Property | Default | Effect |
+|----------|---------|--------|
+| `-Dtieto.query-timeout-seconds=<s>` | `30` | Per-statement query timeout; `0` disables it |
+| `-Dtieto.fetch-size=<n>` | `0` | JDBC fetch size for `SETOF` reads; `0` = driver default |
+
 ## Modules
 
 | Module | Role |

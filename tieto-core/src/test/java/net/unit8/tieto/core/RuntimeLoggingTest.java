@@ -6,6 +6,7 @@ import ch.qos.logback.core.read.ListAppender;
 import net.unit8.tieto.core.connection.TietoDataSource;
 import net.unit8.tieto.core.exception.FunctionCallException;
 import net.unit8.tieto.core.function.FunctionInvoker;
+import net.unit8.tieto.core.function.InvocationConfig;
 import net.unit8.tieto.core.mapper.MapperRegistry;
 import net.unit8.tieto.core.proxy.MethodMetadata;
 import net.unit8.tieto.core.proxy.ParameterInfo;
@@ -58,7 +59,7 @@ class RuntimeLoggingTest {
 
         assertThatThrownBy(() -> FunctionInvoker.invoke(
                 failing, "order_repository_find_by_id_v1", metadata, new Object[]{1L},
-                MapperRegistry.builder().build()))
+                MapperRegistry.builder().build(), InvocationConfig.fromSystemProperties()))
                 .isInstanceOf(FunctionCallException.class)
                 .extracting(e -> ((FunctionCallException) e).getSqlState())
                 .isEqualTo("23505");

@@ -52,7 +52,8 @@ public final class FunctionInvoker {
             String functionName,
             MethodMetadata metadata,
             Object[] args,
-            MapperRegistry mapperRegistry) {
+            MapperRegistry mapperRegistry,
+            InvocationConfig config) {
 
         String sql = buildSql(functionName, metadata.parameters().size());
 
@@ -64,6 +65,14 @@ public final class FunctionInvoker {
         long startNanos = System.nanoTime();
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
+            // Bound the call so a hung function cannot pin the thread/connection; stream
+            // large SETOF reads in batches. Zero leaves the driver default untouched.
+            if (config.queryTimeoutSeconds() > 0) {
+                ps.setQueryTimeout(config.queryTimeoutSeconds());
+            }
+            if (config.fetchSize() > 0) {
+                ps.setFetchSize(config.fetchSize());
+            }
             bindParameters(ps, metadata.parameters(), args, mapperRegistry);
 
             Object result;

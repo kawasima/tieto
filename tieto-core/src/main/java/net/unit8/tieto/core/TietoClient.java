@@ -1,6 +1,7 @@
 package net.unit8.tieto.core;
 
 import net.unit8.tieto.core.function.FunctionNameResolver;
+import net.unit8.tieto.core.function.InvocationConfig;
 import net.unit8.tieto.core.mapper.MapperRegistry;
 import net.unit8.tieto.core.proxy.RepositoryInvocationHandler;
 
@@ -23,13 +24,16 @@ public final class TietoClient {
     private final DataSource dataSource;
     private final MapperRegistry mapperRegistry;
     private final FunctionNameResolver functionNameResolver;
+    private final InvocationConfig invocationConfig;
 
     TietoClient(DataSource dataSource,
                 MapperRegistry mapperRegistry,
-                FunctionNameResolver functionNameResolver) {
+                FunctionNameResolver functionNameResolver,
+                InvocationConfig invocationConfig) {
         this.dataSource = dataSource;
         this.mapperRegistry = mapperRegistry;
         this.functionNameResolver = functionNameResolver;
+        this.invocationConfig = invocationConfig;
     }
 
     /**
@@ -64,7 +68,8 @@ public final class TietoClient {
                         repositoryInterface,
                         dataSource,
                         mapperRegistry,
-                        functionNameResolver
+                        functionNameResolver,
+                        invocationConfig
                 )
         );
     }
