@@ -7,6 +7,7 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.Expression;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -87,11 +88,29 @@ public class RepositoryParser {
             return 1;
         }
         AnnotationExpr a = annotation.get();
+        // @FunctionVersion(2)
         if (a.isSingleMemberAnnotationExpr()) {
-            return Integer.parseInt(
-                    a.asSingleMemberAnnotationExpr().getMemberValue().toString());
+            return parseVersion(md, a.asSingleMemberAnnotationExpr().getMemberValue());
         }
+        // @FunctionVersion(value = 2) — the normal member-value form, equivalent to the above
+        if (a.isNormalAnnotationExpr()) {
+            return a.asNormalAnnotationExpr().getPairs().stream()
+                    .filter(pair -> pair.getNameAsString().equals("value"))
+                    .findFirst()
+                    .map(pair -> parseVersion(md, pair.getValue()))
+                    .orElse(1);
+        }
+        // @FunctionVersion (marker) — falls back to the annotation default
         return 1;
+    }
+
+    private static int parseVersion(MethodDeclaration md, Expression value) {
+        if (!value.isIntegerLiteralExpr()) {
+            throw new GeneratorException(
+                    "@FunctionVersion on " + md.getNameAsString()
+                            + " must be an integer literal, but was: " + value);
+        }
+        return value.asIntegerLiteralExpr().asNumber().intValue();
     }
 
     private static String extractSimpleName(String fullyQualifiedName) {
