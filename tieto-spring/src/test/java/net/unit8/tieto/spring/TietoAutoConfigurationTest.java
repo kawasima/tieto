@@ -10,7 +10,6 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
 
 import javax.sql.DataSource;
-import java.lang.reflect.Field;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,7 +58,7 @@ class TietoAutoConfigurationTest {
                 .run(ctx -> {
                     assertThat(ctx).hasSingleBean(TietoClient.class);
                     assertThat(applied).as("customizer applied").isTrue();
-                    assertThat(dataSourceOf(ctx.getBean(TietoClient.class)))
+                    assertThat(ctx.getBean(TietoClient.class).dataSource())
                             .as("auto-configured client keeps the transaction-aware wrapping")
                             .isInstanceOf(TransactionAwareDataSourceProxy.class);
                 });
@@ -71,12 +70,6 @@ class TietoAutoConfigurationTest {
         runner.withUserConfiguration(OneDataSource.class)
                 .withBean("customClient", TietoClient.class, () -> custom)
                 .run(ctx -> assertThat(ctx.getBean(TietoClient.class)).isSameAs(custom));
-    }
-
-    private static DataSource dataSourceOf(TietoClient client) throws Exception {
-        Field field = TietoClient.class.getDeclaredField("dataSource");
-        field.setAccessible(true);
-        return (DataSource) field.get(client);
     }
 
     @Configuration(proxyBeanMethods = false)

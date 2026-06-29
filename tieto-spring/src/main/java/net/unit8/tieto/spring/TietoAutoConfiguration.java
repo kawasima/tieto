@@ -63,4 +63,15 @@ public class TietoAutoConfiguration {
     static BeanDefinitionRegistryPostProcessor tietoPropertyRepositoryRegistrar() {
         return new TietoPropertyRepositoryRegistrar();
     }
+
+    /**
+     * Warns when any {@code TietoClient} bean — including a user-supplied one that backs
+     * off the auto-configured client — is not built over a transaction-aware DataSource,
+     * so the silent loss of {@code @Transactional} participation is surfaced. Static so it
+     * is registered as infrastructure without forcing early initialization of other beans.
+     */
+    @Bean
+    static TietoClientTransactionAwarenessGuard tietoClientTransactionAwarenessGuard() {
+        return new TietoClientTransactionAwarenessGuard();
+    }
 }
