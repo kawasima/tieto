@@ -33,6 +33,13 @@
         </dependency>
 
         <!-- Test -->
+        <!-- The generated function names must match what tieto-core's runtime
+             resolver computes; depended on (test scope only) to pin that contract. -->
+        <dependency>
+            <groupId>net.unit8.tieto</groupId>
+            <artifactId>tieto-core</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
