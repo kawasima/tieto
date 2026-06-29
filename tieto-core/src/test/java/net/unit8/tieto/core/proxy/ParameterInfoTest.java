@@ -105,9 +105,36 @@ class ParameterInfoTest {
                 .hasMessageContaining("Unsupported parameter type");
     }
 
+    @Test
+    void from_capturesElementTypeOfCollectionParameter() throws NoSuchMethodException {
+        var method = TestRepo.class.getMethod("findByAny", List.class);
+        ParameterInfo p = ParameterInfo.from(method).getFirst();
+        assertThat(p.type()).isEqualTo(List.class);
+        assertThat(p.elementType()).isEqualTo(Spec.class);
+        assertThat(p.isDomainObject()).isTrue();
+    }
+
+    @Test
+    void from_capturesElementTypeOfOptionalCollectionParameter() throws NoSuchMethodException {
+        var method = TestRepo.class.getMethod("findByOptionalSpecs", Optional.class);
+        ParameterInfo p = ParameterInfo.from(method).getFirst();
+        assertThat(p.isOptional()).isTrue();
+        assertThat(p.type()).isEqualTo(List.class);
+        assertThat(p.elementType()).isEqualTo(Spec.class);
+        assertThat(p.isDomainObject()).isTrue();
+    }
+
+    @Test
+    void from_leavesElementTypeNullForNonCollectionParameter() throws NoSuchMethodException {
+        var method = TestRepo.class.getMethod("save", Order.class);
+        assertThat(ParameterInfo.from(method).getFirst().elementType()).isNull();
+    }
+
     // Test types
     record Order(Long id, String name) {}
     enum Status { ACTIVE, INACTIVE }
+    sealed interface Spec permits ById {}
+    record ById(Long id) implements Spec {}
 
     interface TestRepo {
         void findById(Long id);
@@ -120,5 +147,7 @@ class ParameterInfoTest {
         void findByOptionalName(Optional<String> name);
         void findMatching(Optional<Order> example);
         void findByWildcard(Optional<?> any);
+        void findByAny(List<Spec> specs);
+        void findByOptionalSpecs(Optional<List<Spec>> specs);
     }
 }

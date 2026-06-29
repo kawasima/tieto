@@ -34,6 +34,22 @@ public final class MapperRegistry {
         return conventionMapper.forType(type);
     }
 
+    /**
+     * Resolves a mapper for a collection-shaped value whose declared element is
+     * {@code elementType}, so a sealed element keeps its {@code "kind"} discriminator
+     * inside a JSONB array. A {@code null} {@code elementType} (non-collection parameter)
+     * behaves exactly like {@link #resolve(Class)}. An explicit mapper registered for the
+     * container type still takes precedence.
+     */
+    @SuppressWarnings("unchecked")
+    public <T> DomainMapper<T> resolve(Class<T> type, Class<?> elementType) {
+        DomainMapper<?> explicit = explicitMappers.get(type);
+        if (explicit != null) {
+            return (DomainMapper<T>) explicit;
+        }
+        return conventionMapper.forType(type, elementType);
+    }
+
     public static Builder builder() {
         return new Builder();
     }
