@@ -12,6 +12,14 @@
     <name>tieto</name>
     <description>Repository implementation as PostgreSQL Functions</description>
 
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
     <modules>
         <module>tieto-core</module>
         <module>tieto-spring</module>
