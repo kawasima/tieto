@@ -68,7 +68,7 @@ public final class CliAiProvider implements AiProvider {
                 process.destroyForcibly();
                 throw new GeneratorException(
                         "CLI command timed out after " + timeoutSeconds + " seconds: "
-                                + String.join(" ", command));
+                                + commandName());
             }
 
             // The process has exited; the pipes are normally at EOF so these complete
@@ -84,14 +84,14 @@ public final class CliAiProvider implements AiProvider {
                 throw new GeneratorException(
                         "CLI command exited but its output stream did not close within "
                                 + timeoutSeconds + " seconds (a background child may be holding it): "
-                                + String.join(" ", command));
+                                + commandName());
             }
 
             int exitCode = process.exitValue();
             if (exitCode != 0) {
                 throw new GeneratorException(
                         "CLI command exited with code " + exitCode + ": "
-                                + String.join(" ", command)
+                                + commandName()
                                 + (errorOutput.isEmpty() ? "" : "\nstderr: " + errorOutput));
             }
 
@@ -99,10 +99,10 @@ public final class CliAiProvider implements AiProvider {
             return new GeneratedFunction(ResponseSql.extractFunctionName(sql), sql, null);
         } catch (IOException e) {
             throw new GeneratorException(
-                    "Failed to execute CLI command: " + String.join(" ", command), e);
+                    "Failed to execute CLI command: " + commandName(), e);
         } catch (ExecutionException e) {
             throw new GeneratorException(
-                    "Failed to read output of CLI command: " + String.join(" ", command),
+                    "Failed to read output of CLI command: " + commandName(),
                     e.getCause());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -113,5 +113,14 @@ public final class CliAiProvider implements AiProvider {
             }
             pool.shutdownNow();
         }
+    }
+
+    /**
+     * The executable name only, for error messages. The full argument list is
+     * deliberately not echoed: a user may place a secret in {@code --ai-command},
+     * and error messages can end up in logs.
+     */
+    private String commandName() {
+        return command.isEmpty() ? "(empty command)" : command.get(0);
     }
 }

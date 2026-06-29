@@ -4,7 +4,6 @@ import net.unit8.tieto.core.annotation.TietoRepository;
 import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConstructorArgumentValues.ValueHolder;
-import org.springframework.beans.factory.support.AbstractBeanDefinition;
 import org.springframework.beans.factory.support.BeanDefinitionBuilder;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
@@ -64,10 +63,11 @@ final class TietoRepositoryScanner {
                             + "', which is already taken by another bean definition. "
                             + "Rename the interface or the conflicting bean.");
         }
+        // The TietoClient is injected via the @Autowired setter on
+        // TietoRepositoryFactoryBean, so no explicit autowire mode is needed.
         BeanDefinition factoryBeanDef = BeanDefinitionBuilder
                 .genericBeanDefinition(TietoRepositoryFactoryBean.class)
                 .addConstructorArgValue(beanClassName)
-                .setAutowireMode(AbstractBeanDefinition.AUTOWIRE_BY_TYPE)
                 .getBeanDefinition();
         registry.registerBeanDefinition(beanName, factoryBeanDef);
     }

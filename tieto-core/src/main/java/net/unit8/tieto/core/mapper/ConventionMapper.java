@@ -54,6 +54,7 @@ public final class ConventionMapper {
 
     private final ObjectMapper objectMapper;
     private final ConcurrentMap<Class<?>, ObjectMapper> configuredMappers = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Class<?>, DomainMapper<?>> domainMappers = new ConcurrentHashMap<>();
 
     public ConventionMapper() {
         this.objectMapper = new ObjectMapper()
@@ -64,13 +65,20 @@ public final class ConventionMapper {
     }
 
     /**
-     * Creates a {@link DomainMapper} for the given type using convention-based mapping.
+     * Returns (and caches) a {@link DomainMapper} for the given type using
+     * convention-based mapping. The mapper is immutable per type, so it is
+     * built once rather than re-allocated on every resolve.
      */
+    @SuppressWarnings("unchecked")
     public <T> DomainMapper<T> forType(Class<T> type) {
+        return (DomainMapper<T>) domainMappers.computeIfAbsent(type, this::buildDomainMapper);
+    }
+
+    private DomainMapper<Object> buildDomainMapper(Class<?> type) {
         ObjectMapper mapper = mapperFor(type);
         return new DomainMapper<>() {
             @Override
-            public String toJson(T obj) {
+            public String toJson(Object obj) {
                 try {
                     // writerFor(type) makes the declared (static) type the sealed
                     // root, so the root node also gets its "kind" discriminator.
@@ -82,7 +90,7 @@ public final class ConventionMapper {
             }
 
             @Override
-            public T fromJson(String json, Class<T> t) {
+            public Object fromJson(String json, Class<Object> t) {
                 try {
                     return mapper.readValue(json, t);
                 } catch (JsonProcessingException e) {

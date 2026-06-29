@@ -43,6 +43,15 @@ class TietoPropertyRegistrationTest {
     }
 
     @Test
+    void bindsAndScansMultipleBasePackages() {
+        // The real package is listed second, so finding SampleRepository proves
+        // the comma-separated List<String> bound to more than its first element.
+        runner.withPropertyValues(
+                        "tieto.base-packages=com.example.absent,net.unit8.tieto.spring.testrepos")
+                .run(ctx -> assertThat(ctx).hasSingleBean(SampleRepository.class));
+    }
+
+    @Test
     void exposesTietoClientAndPropertiesAsBeans() {
         runner.run(ctx -> assertThat(ctx)
                 .hasSingleBean(TietoProperties.class)

@@ -6,6 +6,7 @@ import net.unit8.tieto.core.mapper.DomainMapper;
 import net.unit8.tieto.core.mapper.MapperRegistry;
 
 import javax.sql.DataSource;
+import java.util.Objects;
 
 /**
  * Builder for {@link TietoClient}.
@@ -32,6 +33,8 @@ public final class TietoClientBuilder {
      * convention-based mapping.
      */
     public <T> TietoClientBuilder mapper(Class<T> domainClass, DomainMapper<T> mapper) {
+        Objects.requireNonNull(domainClass, "domainClass must not be null");
+        Objects.requireNonNull(mapper, "mapper must not be null");
         mapperRegistryBuilder.register(domainClass, mapper);
         return this;
     }
@@ -40,7 +43,7 @@ public final class TietoClientBuilder {
      * Overrides the default function naming strategy.
      */
     public TietoClientBuilder functionNameResolver(FunctionNameResolver resolver) {
-        this.functionNameResolver = resolver;
+        this.functionNameResolver = Objects.requireNonNull(resolver, "resolver must not be null");
         return this;
     }
 

@@ -41,7 +41,10 @@ public final class RepositoryInvocationHandler implements InvocationHandler {
                 case "toString" -> repositoryInterface.getSimpleName() + "@tieto-proxy";
                 case "hashCode" -> System.identityHashCode(proxy);
                 case "equals" -> proxy == args[0];
-                default -> method.invoke(this, args);
+                // A JDK Proxy only dispatches public, non-final Object methods,
+                // i.e. exactly the three above; nothing else can reach here.
+                default -> throw new UnsupportedOperationException(
+                        "Unexpected Object method on tieto proxy: " + method.getName());
             };
         }
 
@@ -51,13 +54,11 @@ public final class RepositoryInvocationHandler implements InvocationHandler {
         }
 
         MethodMetadata metadata = metadataCache.computeIfAbsent(
-                method, m -> MethodMetadata.analyze(repositoryInterface, m));
-
-        String functionName = nameResolver.resolve(repositoryInterface, method);
+                method, m -> MethodMetadata.analyze(repositoryInterface, m, nameResolver));
 
         return FunctionInvoker.invoke(
                 dataSource,
-                functionName,
+                metadata.functionName(),
                 metadata,
                 args,
                 mapperRegistry
