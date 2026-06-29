@@ -1,5 +1,6 @@
 package net.unit8.tieto.core.proxy;
 
+import net.unit8.tieto.core.function.DefaultFunctionNameResolver;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
@@ -31,8 +32,10 @@ class MethodMetadataTest {
     void capturesTheReturnHandlerAndSimpleParameterContent() throws Exception {
         Method method = SampleRepository.class.getMethod("findById", Long.class);
 
-        MethodMetadata metadata = MethodMetadata.analyze(SampleRepository.class, method);
+        MethodMetadata metadata = MethodMetadata.analyze(
+                SampleRepository.class, method, new DefaultFunctionNameResolver());
 
+        assertThat(metadata.functionName()).isEqualTo("sample_repository_find_by_id_v1");
         assertThat(metadata.returnTypeHandler())
                 .isEqualTo(new ReturnTypeHandler.OptionalHandler(String.class));
         // Assert the analyzed parameter content, not a second call of the analyzer.
@@ -48,7 +51,8 @@ class MethodMetadataTest {
     void classifiesADomainObjectParameter() throws Exception {
         Method method = SampleRepository.class.getMethod("save", Sample.class);
 
-        MethodMetadata metadata = MethodMetadata.analyze(SampleRepository.class, method);
+        MethodMetadata metadata = MethodMetadata.analyze(
+                SampleRepository.class, method, new DefaultFunctionNameResolver());
 
         assertThat(metadata.returnTypeHandler()).isEqualTo(new ReturnTypeHandler.VoidHandler());
         ParameterInfo param = metadata.parameters().get(0);
@@ -60,7 +64,8 @@ class MethodMetadataTest {
     void handlesAListReturnWithNoParameters() throws Exception {
         Method method = SampleRepository.class.getMethod("findAll");
 
-        MethodMetadata metadata = MethodMetadata.analyze(SampleRepository.class, method);
+        MethodMetadata metadata = MethodMetadata.analyze(
+                SampleRepository.class, method, new DefaultFunctionNameResolver());
 
         assertThat(metadata.returnTypeHandler())
                 .isEqualTo(new ReturnTypeHandler.ListHandler(String.class));
@@ -71,7 +76,8 @@ class MethodMetadataTest {
     void handlesAVoidReturn() throws Exception {
         Method method = SampleRepository.class.getMethod("deleteById", Long.class);
 
-        MethodMetadata metadata = MethodMetadata.analyze(SampleRepository.class, method);
+        MethodMetadata metadata = MethodMetadata.analyze(
+                SampleRepository.class, method, new DefaultFunctionNameResolver());
 
         assertThat(metadata.returnTypeHandler()).isEqualTo(new ReturnTypeHandler.VoidHandler());
     }

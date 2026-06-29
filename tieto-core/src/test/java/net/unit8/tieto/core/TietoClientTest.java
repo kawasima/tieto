@@ -36,6 +36,17 @@ class TietoClientTest {
                 .hasMessageContaining("is not an interface");
     }
 
+    @Test
+    void builder_rejectsNullMapperOrResolverAtConfigTime() {
+        var builder = TietoClient.builder(new StubDataSource());
+        assertThatThrownBy(() -> builder.mapper(SampleRepository.class, null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("mapper");
+        assertThatThrownBy(() -> builder.functionNameResolver(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("resolver");
+    }
+
     interface SampleRepository {
         void doSomething();
     }
