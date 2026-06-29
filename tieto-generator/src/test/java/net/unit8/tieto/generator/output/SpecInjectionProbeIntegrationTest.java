@@ -24,8 +24,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * passes; an unsafe (value-concatenating) one is caught regardless of how it
  * extracts the value.
  */
-@Testcontainers
-class SpecInjectionProbeTest {
+@Testcontainers(disabledWithoutDocker = true)
+class SpecInjectionProbeIntegrationTest {
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16");

@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * references a non-existent column — the class of error that survives CREATE and
  * the static validator and only surfaces on first call.
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class ReadSmokeVerifierIntegrationTest {
 
     @Container

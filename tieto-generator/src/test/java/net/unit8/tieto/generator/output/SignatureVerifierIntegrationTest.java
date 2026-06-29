@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * name: same-name-different-signature would create a PostgreSQL overload rather
  * than replace, perturbing other tests.</p>
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class SignatureVerifierIntegrationTest {
 
     @Container
