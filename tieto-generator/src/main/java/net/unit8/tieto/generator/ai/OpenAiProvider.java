@@ -14,6 +14,13 @@ public class OpenAiProvider extends AbstractHttpAiProvider {
 
     private static final String DEFAULT_API_URL = "https://api.openai.com/v1/chat/completions";
 
+    // A dated snapshot, not the floating "gpt-4o" alias, so regenerations are
+    // reproducible (the alias is re-pointed by the vendor over time).
+    private static final String DEFAULT_MODEL = "gpt-4o-2024-08-06";
+
+    // Fixed seed makes OpenAI sampling best-effort reproducible across runs.
+    private static final int SEED = 0;
+
     public OpenAiProvider(String apiKey, String model) {
         this(apiKey, model, DEFAULT_MAX_TOKENS, RetrySettings.defaults());
     }
@@ -31,7 +38,7 @@ public class OpenAiProvider extends AbstractHttpAiProvider {
     }
 
     OpenAiProvider(String apiKey, String model, String apiUrl, int maxTokens, RetrySettings retry) {
-        super(apiKey, model != null ? model : "gpt-4o", apiUrl, maxTokens, retry);
+        super(apiKey, model != null ? model : DEFAULT_MODEL, apiUrl, maxTokens, retry);
     }
 
     @Override
@@ -47,6 +54,7 @@ public class OpenAiProvider extends AbstractHttpAiProvider {
     @Override
     protected String buildRequestBody(String prompt) throws IOException {
         ObjectNode requestNode = baseRequestNode();
+        requestNode.put("seed", SEED);
         var messages = requestNode.putArray("messages");
         var systemMsg = messages.addObject();
         systemMsg.put("role", "system");

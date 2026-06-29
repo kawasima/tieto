@@ -10,6 +10,9 @@ import java.util.List;
  */
 public class AiProviderFactory {
 
+    // Same dated snapshot the HTTP ClaudeProvider pins, for a reproducible default.
+    private static final String DEFAULT_CLAUDE_CLI_MODEL = "claude-sonnet-4-20250514";
+
     private AiProviderFactory() {}
 
     /**
@@ -30,7 +33,11 @@ public class AiProviderFactory {
         return switch (provider.toLowerCase()) {
             case "claude", "anthropic" -> new ClaudeProvider(apiKey, model, maxTokens, retry);
             case "openai" -> new OpenAiProvider(apiKey, model, maxTokens, retry);
-            case "claude-cli" -> new CliAiProvider(List.of("claude", "--print"));
+            // Pin the model on the recommended default path too, so it does not
+            // silently follow whatever the CLI defaults to. Override with --ai-command.
+            case "claude-cli" -> new CliAiProvider(List.of(
+                    "claude", "--print",
+                    "--model", model != null ? model : DEFAULT_CLAUDE_CLI_MODEL));
             default -> throw new GeneratorException("Unknown AI provider: " + provider);
         };
     }

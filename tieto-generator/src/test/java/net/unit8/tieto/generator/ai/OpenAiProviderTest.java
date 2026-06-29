@@ -63,6 +63,17 @@ class OpenAiProviderTest {
         JsonNode body = parse(capturedRequestBody);
         assertThat(body.get("temperature").asInt()).isZero();
         assertThat(body.get("max_tokens").asInt()).isEqualTo(8192);
+        assertThat(body.get("seed").asInt()).as("a fixed seed for reproducibility").isZero();
+    }
+
+    @Test
+    void defaultsToADatedModelSnapshotNotAFloatingAlias() {
+        responseBody = completeResponse();
+        String url = "http://localhost:" + server.getAddress().getPort() + "/v1/chat/completions";
+
+        new OpenAiProvider("test-key", null, url, 8192, FAST_RETRY).generateFunction("p");
+
+        assertThat(parse(capturedRequestBody).get("model").asText()).isEqualTo("gpt-4o-2024-08-06");
     }
 
     @Test
