@@ -1,11 +1,14 @@
 package net.unit8.tieto.spring;
 
 import net.unit8.tieto.core.TietoClient;
+import net.unit8.tieto.core.TietoClientBuilder;
 import net.unit8.tieto.core.annotation.TietoRepository;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.BeanDefinitionRegistryPostProcessor;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnSingleCandidate;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
@@ -20,19 +23,32 @@ import javax.sql.DataSource;
  * per call participates in the surrounding {@code @Transactional} boundary and
  * is released (not physically closed) while a transaction is active.</p>
  *
+ * <p>Ordered after {@code DataSourceAutoConfiguration} and guarded by
+ * {@link ConditionalOnSingleCandidate}, so it backs off cleanly (rather than
+ * failing context refresh) when there is no {@link DataSource}, or several with
+ * no {@code @Primary}.</p>
+ *
+ * <p>To add explicit mappers or a custom function-name resolver, register a
+ * {@link TietoClientCustomizer} bean rather than replacing the {@code TietoClient}
+ * bean — the customizer keeps the transaction-aware DataSource wrapping intact.</p>
+ *
  * <p>Also enables property-driven repository registration: setting
  * {@code tieto.base-packages} registers {@link TietoRepository}-annotated
  * interfaces without an {@link EnableTietoRepositories} annotation.</p>
  */
-@AutoConfiguration
-@ConditionalOnClass(TietoClient.class)
+@AutoConfiguration(after = DataSourceAutoConfiguration.class)
 @EnableConfigurationProperties(TietoProperties.class)
 public class TietoAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public TietoClient tietoClient(DataSource dataSource) {
-        return TietoClient.builder(new TransactionAwareDataSourceProxy(dataSource)).build();
+    @ConditionalOnSingleCandidate(DataSource.class)
+    public TietoClient tietoClient(DataSource dataSource,
+                                   ObjectProvider<TietoClientCustomizer> customizers) {
+        TietoClientBuilder builder =
+                TietoClient.builder(new TransactionAwareDataSourceProxy(dataSource));
+        customizers.orderedStream().forEach(customizer -> customizer.customize(builder));
+        return builder.build();
     }
 
     /**

@@ -5,9 +5,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -106,7 +106,7 @@ class SpringTransactionIntegrationTest {
 
     @Configuration
     @EnableTransactionManagement
-    @Import(TietoAutoConfiguration.class)
+    @ImportAutoConfiguration(TietoAutoConfiguration.class)
     static class Config {
 
         @Bean

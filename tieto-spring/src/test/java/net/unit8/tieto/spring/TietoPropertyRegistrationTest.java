@@ -4,14 +4,12 @@ import net.unit8.tieto.core.TietoClient;
 import net.unit8.tieto.spring.testrepos.PlainService;
 import net.unit8.tieto.spring.testrepos.SampleRepository;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Import;
-import org.springframework.core.env.MapPropertySource;
 
 import javax.sql.DataSource;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -19,74 +17,59 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Drives the property-driven registration path: setting {@code tieto.base-packages}
  * registers the {@link TietoRepository}-annotated interfaces via
  * {@link TietoAutoConfiguration}, with no {@code @EnableTietoRepositories} present.
+ *
+ * <p>Uses {@link ApplicationContextRunner} with {@link AutoConfigurations} so the
+ * auto-configuration is loaded the way Spring Boot loads it — honouring
+ * {@code @AutoConfiguration(after = ...)} ordering and the
+ * {@code @ConditionalOnSingleCandidate(DataSource)} guard.</p>
  */
 class TietoPropertyRegistrationTest {
 
+    private final ApplicationContextRunner runner = new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(TietoAutoConfiguration.class))
+            .withUserConfiguration(DataSourceConfig.class);
+
     @Test
     void registersRepositoriesFromTheBasePackagesProperty() {
-        try (var ctx = new AnnotationConfigApplicationContext()) {
-            ctx.getEnvironment().getPropertySources().addFirst(new MapPropertySource(
-                    "test", Map.of("tieto.base-packages", "net.unit8.tieto.spring.testrepos")));
-            ctx.register(PropertyConfig.class);
-            ctx.refresh();
-
-            assertThat(ctx.getBean(SampleRepository.class)).isNotNull();
-            assertThat(ctx.getBeanNamesForType(PlainService.class)).isEmpty();
-        }
+        runner.withPropertyValues("tieto.base-packages=net.unit8.tieto.spring.testrepos")
+                .run(ctx -> assertThat(ctx)
+                        .hasSingleBean(SampleRepository.class)
+                        .doesNotHaveBean(PlainService.class));
     }
 
     @Test
     void registersNothingWhenThePropertyIsAbsent() {
-        try (var ctx = new AnnotationConfigApplicationContext()) {
-            ctx.register(PropertyConfig.class);
-            ctx.refresh();
-
-            assertThat(ctx.getBeanNamesForType(SampleRepository.class)).isEmpty();
-        }
+        runner.run(ctx -> assertThat(ctx).doesNotHaveBean(SampleRepository.class));
     }
 
     @Test
     void exposesTietoClientAndPropertiesAsBeans() {
-        try (var ctx = new AnnotationConfigApplicationContext()) {
-            ctx.register(PropertyConfig.class);
-            ctx.refresh();
-
-            // @EnableConfigurationProperties keeps TietoProperties injectable; the
-            // auto-configuration contributes the TietoClient bean.
-            assertThat(ctx.getBean(TietoProperties.class)).isNotNull();
-            assertThat(ctx.getBean(TietoClient.class)).isNotNull();
-        }
+        runner.run(ctx -> assertThat(ctx)
+                .hasSingleBean(TietoProperties.class)
+                .hasSingleBean(TietoClient.class));
     }
 
     @Test
     void registersOnceWhenBothTheAnnotationAndPropertyCoverTheSamePackage() {
-        try (var ctx = new AnnotationConfigApplicationContext()) {
-            ctx.getEnvironment().getPropertySources().addFirst(new MapPropertySource(
-                    "test", Map.of("tieto.base-packages", "net.unit8.tieto.spring.testrepos")));
-            ctx.register(BothPathsConfig.class);
-            ctx.refresh();
-
-            // Same repository reached via both paths must be idempotent, not a collision error.
-            assertThat(ctx.getBeanNamesForType(SampleRepository.class)).hasSize(1);
-        }
+        runner.withUserConfiguration(AnnotationDrivenConfig.class)
+                .withPropertyValues("tieto.base-packages=net.unit8.tieto.spring.testrepos")
+                .run(ctx -> {
+                    // Same repository reached via both paths must be idempotent, not a collision error.
+                    assertThat(ctx).hasNotFailed();
+                    assertThat(ctx.getBeanNamesForType(SampleRepository.class)).hasSize(1);
+                });
     }
 
-    @Configuration
-    @Import(TietoAutoConfiguration.class)
-    static class PropertyConfig {
+    @Configuration(proxyBeanMethods = false)
+    static class DataSourceConfig {
         @Bean
         DataSource dataSource() {
             return new NoOpDataSource();
         }
     }
 
-    @Configuration
-    @Import(TietoAutoConfiguration.class)
+    @Configuration(proxyBeanMethods = false)
     @EnableTietoRepositories("net.unit8.tieto.spring.testrepos")
-    static class BothPathsConfig {
-        @Bean
-        DataSource dataSource() {
-            return new NoOpDataSource();
-        }
+    static class AnnotationDrivenConfig {
     }
 }
