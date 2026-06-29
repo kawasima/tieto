@@ -11,6 +11,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import net.unit8.tieto.core.exception.MappingException;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
@@ -100,11 +101,13 @@ public final class ConventionMapper {
      * hierarchy. Otherwise the plain mapper is used.
      */
     private ObjectMapper mapperFor(Class<?> type) {
-        Set<Class<?>> sealedTypes = collectSealedTypes(type);
-        if (sealedTypes.isEmpty()) {
-            return objectMapper;
-        }
+        // Cache per type, including the no-sealed-types case, so the reflective
+        // graph walk runs at most once per type rather than on every bind/return.
         return configuredMappers.computeIfAbsent(type, t -> {
+            Set<Class<?>> sealedTypes = collectSealedTypes(t);
+            if (sealedTypes.isEmpty()) {
+                return objectMapper;
+            }
             ObjectMapper copy = objectMapper.copy();
             for (Class<?> sealed : sealedTypes) {
                 registerKind(copy, sealed);
@@ -139,7 +142,14 @@ public final class ConventionMapper {
     }
 
     private static void collectSealedTypes(Class<?> type, Set<Class<?>> sealed, Set<Class<?>> visited) {
-        if (type == null || isSkippable(type) || !visited.add(type)) {
+        if (type == null) {
+            return;
+        }
+        if (type.isArray()) {
+            collectSealedTypes(type.getComponentType(), sealed, visited);
+            return;
+        }
+        if (isSkippable(type) || !visited.add(type)) {
             return;
         }
         if (type.isSealed()) {
@@ -156,9 +166,12 @@ public final class ConventionMapper {
                 collectSealedTypes(rc.getGenericType(), sealed, visited);
             }
         } else {
-            for (Field field : type.getDeclaredFields()) {
-                if (!Modifier.isStatic(field.getModifiers())) {
-                    collectSealedTypes(field.getGenericType(), sealed, visited);
+            // Walk the whole class chain: an inherited field can reach a sealed type too.
+            for (Class<?> c = type; c != null && !isSkippable(c); c = c.getSuperclass()) {
+                for (Field field : c.getDeclaredFields()) {
+                    if (!Modifier.isStatic(field.getModifiers())) {
+                        collectSealedTypes(field.getGenericType(), sealed, visited);
+                    }
                 }
             }
         }
@@ -172,14 +185,15 @@ public final class ConventionMapper {
             for (Type arg : pt.getActualTypeArguments()) {
                 collectSealedTypes(arg, sealed, visited);
             }
+        } else if (type instanceof GenericArrayType ga) {
+            collectSealedTypes(ga.getGenericComponentType(), sealed, visited);
         }
-        // Wildcards, type variables and generic arrays carry no concrete sealed
-        // class to register, so they are ignored.
+        // Wildcards and type variables carry no concrete sealed class, so they are ignored.
     }
 
     /** JDK and primitive types never declare tieto Specification hierarchies; do not descend into them. */
     private static boolean isSkippable(Class<?> type) {
-        if (type.isPrimitive() || type.isEnum() || type.isArray()) {
+        if (type.isPrimitive() || type.isEnum()) {
             return true;
         }
         Package pkg = type.getPackage();

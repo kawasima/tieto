@@ -67,9 +67,55 @@ class NestedSealedMappingTest {
         assertThat(back).isEqualTo(criteria);
     }
 
+    @Test
+    void sealedArrayInNonSealedRecord_eachElementGetsKind() throws Exception {
+        DomainMapper<ArrayHolder> mapper = conventionMapper.forType(ArrayHolder.class);
+
+        ArrayHolder holder = new ArrayHolder(new OrderSpec[]{
+                new ForCustomer("CUST-001"), new HighValue(new BigDecimal("9"))});
+        String serialized = mapper.toJson(holder);
+
+        JsonNode specs = json.readTree(serialized).get("specs");
+        assertThat(specs.get(0).get("kind").asText()).isEqualTo("forCustomer");
+        assertThat(specs.get(1).get("kind").asText()).isEqualTo("highValue");
+
+        ArrayHolder back = mapper.fromJson(serialized, ArrayHolder.class);
+        assertThat(back.specs()[0]).isInstanceOf(ForCustomer.class);
+        assertThat(back.specs()[1]).isInstanceOf(HighValue.class);
+    }
+
+    @Test
+    void sealedFieldInheritedByNonRecordClass_getsKind() throws Exception {
+        DomainMapper<OrderQuery> mapper = conventionMapper.forType(OrderQuery.class);
+
+        OrderQuery query = new OrderQuery(new ForCustomer("CUST-001"), 5);
+        String serialized = mapper.toJson(query);
+
+        assertThat(json.readTree(serialized).get("spec").get("kind").asText()).isEqualTo("forCustomer");
+
+        OrderQuery back = mapper.fromJson(serialized, OrderQuery.class);
+        assertThat(back.spec).isInstanceOf(ForCustomer.class);
+        assertThat(back.limit).isEqualTo(5);
+    }
+
     // Non-sealed containers reaching the sealed hierarchy through a field.
     record OrderCriteria(OrderSpec spec, int limit) {}
     record OrderCriteria2(List<OrderSpec> specs) {}
+    record ArrayHolder(OrderSpec[] specs) {}
+
+    // Non-record container whose sealed field is declared in a superclass.
+    static class BaseQuery {
+        public OrderSpec spec;
+        public BaseQuery() {}
+    }
+    static class OrderQuery extends BaseQuery {
+        public int limit;
+        public OrderQuery() {}
+        OrderQuery(OrderSpec spec, int limit) {
+            this.spec = spec;
+            this.limit = limit;
+        }
+    }
 
     // Specification hierarchy — plain records, zero annotations.
     sealed interface OrderSpec permits And, Not, ForCustomer, HighValue {}
