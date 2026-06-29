@@ -181,6 +181,11 @@ abstract class AbstractHttpAiProvider implements AiProvider {
                         + " and was not deployed. Simplify the method spec or raise the token limit.");
     }
 
+    @Override
+    public final String provenance() {
+        return providerName() + " model=" + model + " temperature=0";
+    }
+
     /** Human-readable provider name for error messages (e.g. {@code "Claude"}). */
     protected abstract String providerName();
 

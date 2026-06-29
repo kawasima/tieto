@@ -115,6 +115,17 @@ public final class CliAiProvider implements AiProvider {
         }
     }
 
+    @Override
+    public String provenance() {
+        // The executable only — the argument list may carry a secret.
+        return "claude-cli (" + commandName() + ")";
+    }
+
+    /** The command tokens (package-visible for tests). */
+    List<String> command() {
+        return command;
+    }
+
     /**
      * The executable name only, for error messages. The full argument list is
      * deliberately not echoed: a user may place a secret in {@code --ai-command},

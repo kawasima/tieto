@@ -12,4 +12,10 @@ public interface AiProvider {
      * @return the generated function
      */
     GeneratedFunction generateFunction(String prompt);
+
+    /**
+     * A short, secret-free description of the backend and model/parameters used,
+     * recorded in the generated SQL artifact header for auditability.
+     */
+    String provenance();
 }
