@@ -240,6 +240,10 @@ The Specification tree travels to PostgreSQL as a single JSONB argument. Each no
 
 This `"kind"` tag is added by convention during serialization — the Specification records themselves stay free of any annotation. tieto-generator emits a recursive function (`<function>_spec_to_sql`) that walks the tree into a `WHERE` clause, so arbitrarily nested `And`/`Or`/`Not` compositions work. See `examples/vanilla` for a runnable end-to-end example.
 
+## Logging
+
+tieto-core logs through the [SLF4J](https://www.slf4j.org/) API only; the host application supplies the binding (Logback, Log4j2, …). Enable `DEBUG` for `net.unit8.tieto` to see, per call, the resolved function name and its argument *shapes* (parameter types and cardinality — never the values), connection acquisition, and transaction begin/join/commit/rollback. A failed call logs at `WARN` with the elapsed time and the PostgreSQL `SQLSTATE`. Calls slower than 1000 ms log at `WARN`; tune or disable that with `-Dtieto.slow-call-threshold-ms=<ms>` (`0` disables it).
+
 ## Modules
 
 | Module | Role |
