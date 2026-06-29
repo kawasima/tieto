@@ -1,5 +1,7 @@
 # tieto
 
+[![CI](https://github.com/kawasima/tieto/actions/workflows/ci.yml/badge.svg)](https://github.com/kawasima/tieto/actions/workflows/ci.yml)
+
 ## Free your domain models from the gravity of database design
 
 Domain models bend under the gravitational pull of database schema. Even with ORMs, table structures bleed into domain objects until models become mere mirrors of tables.
