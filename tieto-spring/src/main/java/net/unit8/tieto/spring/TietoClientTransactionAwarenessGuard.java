@@ -8,6 +8,7 @@ import org.springframework.jdbc.datasource.DelegatingDataSource;
 import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
 
 import javax.sql.DataSource;
+import java.sql.SQLException;
 
 /**
  * Warns at startup when a {@link TietoClient} bean is built over a DataSource that is
@@ -42,7 +43,10 @@ final class TietoClientTransactionAwarenessGuard implements BeanPostProcessor {
     /**
      * Whether connections obtained from {@code dataSource} are bound to the current Spring
      * transaction — i.e. a {@link TransactionAwareDataSourceProxy} sits anywhere in the
-     * delegation chain that {@code getConnection()} follows.
+     * delegation chain that {@code getConnection()} follows. The {@link DelegatingDataSource}
+     * walk covers the standard Spring wrapping; as a fallback, a custom wrapper that is not a
+     * {@code DelegatingDataSource} but exposes the proxy through the JDBC {@code unwrap}
+     * contract is honoured too, so it is not falsely warned about.
      */
     static boolean isTransactionAware(DataSource dataSource) {
         DataSource current = dataSource;
@@ -53,9 +57,13 @@ final class TietoClientTransactionAwarenessGuard implements BeanPostProcessor {
             if (current instanceof DelegatingDataSource delegating) {
                 current = delegating.getTargetDataSource();
             } else {
-                return false;
+                break;
             }
         }
-        return false;
+        try {
+            return dataSource.isWrapperFor(TransactionAwareDataSourceProxy.class);
+        } catch (SQLException e) {
+            return false;
+        }
     }
 }

@@ -6,6 +6,8 @@ import ch.qos.logback.core.read.ListAppender;
 import net.unit8.tieto.core.TietoClient;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.jdbc.datasource.DelegatingDataSource;
 import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
 
@@ -39,6 +41,19 @@ class TietoClientTransactionAwarenessGuardTest {
     }
 
     @Test
+    void customWrapperExposingTheProxyViaJdbcUnwrap_isTransactionAware() {
+        // A wrapper that is not a DelegatingDataSource but honours the JDBC unwrap contract
+        // must not be falsely warned about.
+        DataSource wrapper = new NoOpDataSource() {
+            @Override
+            public boolean isWrapperFor(Class<?> iface) {
+                return iface == TransactionAwareDataSourceProxy.class;
+            }
+        };
+        assertThat(TietoClientTransactionAwarenessGuard.isTransactionAware(wrapper)).isTrue();
+    }
+
+    @Test
     void warnsForAClientOverARawDataSource() {
         ListAppender<ILoggingEvent> log = capture();
         TietoClient client = TietoClient.builder(new NoOpDataSource()).build();
@@ -64,6 +79,38 @@ class TietoClientTransactionAwarenessGuardTest {
 
         assertThat(log.list).noneSatisfy(event ->
                 assertThat(event.getLevel()).isEqualTo(Level.WARN));
+    }
+
+    @Test
+    void firesInARealContextForAUserSuppliedRawDataSourceClient() {
+        ListAppender<ILoggingEvent> log = capture();
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(TietoAutoConfiguration.class))
+                .withBean("dataSource", DataSource.class, NoOpDataSource::new)
+                // A user-defined client over the raw DataSource backs off the auto-configured one
+                // (@ConditionalOnMissingBean) and loses transaction-awareness.
+                .withBean("customClient", TietoClient.class,
+                        () -> TietoClient.builder(new NoOpDataSource()).build())
+                .run(ctx -> {
+                    assertThat(ctx).hasNotFailed();
+                    assertThat(log.list).anySatisfy(event -> {
+                        assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                        assertThat(event.getFormattedMessage()).contains("customClient");
+                    });
+                });
+    }
+
+    @Test
+    void silentInARealContextForTheAutoConfiguredClient() {
+        ListAppender<ILoggingEvent> log = capture();
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(TietoAutoConfiguration.class))
+                .withBean("dataSource", DataSource.class, NoOpDataSource::new)
+                .run(ctx -> {
+                    assertThat(ctx).hasSingleBean(TietoClient.class);
+                    assertThat(log.list).noneSatisfy(event ->
+                            assertThat(event.getLevel()).isEqualTo(Level.WARN));
+                });
     }
 
     private static ListAppender<ILoggingEvent> capture() {

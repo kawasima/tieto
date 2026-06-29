@@ -6,7 +6,7 @@ import java.sql.Connection;
 import java.util.logging.Logger;
 
 /** A DataSource whose connection is never actually opened in registration tests. */
-final class NoOpDataSource implements DataSource {
+class NoOpDataSource implements DataSource {
 
     @Override
     public Connection getConnection() {
