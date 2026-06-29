@@ -40,7 +40,7 @@ tieto-generator/target/tieto generate \
   --repository net.unit8.tieto.example.domain.OrderRepository \
   --db-url jdbc:postgresql://localhost:5432/tieto_example \
   --db-user tieto --db-password tieto \
-  --ai-provider claude-cli
+  --ai-provider claude-cli --yes
 mvn exec:java -pl examples/vanilla
 cd examples/vanilla && docker compose down && cd ../..
 
@@ -51,7 +51,7 @@ tieto-generator/target/tieto generate \
   --repository net.unit8.tieto.example.domain.OrderRepository \
   --db-url jdbc:postgresql://localhost:5432/tieto_example \
   --db-user tieto --db-password tieto \
-  --ai-provider claude-cli
+  --ai-provider claude-cli --yes
 cd examples/spring && mvn spring-boot:run
 docker compose down && cd ../..
 ```
