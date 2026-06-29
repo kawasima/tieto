@@ -104,6 +104,12 @@ public class GenerateCommand implements Callable<Integer> {
             description = "Output mode: deploy (default) or file")
     private String outputMode;
 
+    @Option(names = {"--yes", "-y"},
+            description = "Confirm deploying AI-generated SQL directly to the database. Required for"
+                    + " --output-mode deploy. Prefer --output-mode file to review the SQL before"
+                    + " applying it.")
+    private boolean confirmDeploy;
+
     @Option(names = "--force",
             description = "Force regeneration even if the function version already exists")
     private boolean force;
@@ -136,6 +142,16 @@ public class GenerateCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
+        // Deploy mode writes AI-generated SQL straight into the live database, so it
+        // requires explicit confirmation. The safe posture is to write the SQL to a
+        // file, review it, and apply it deliberately.
+        if ("deploy".equals(outputMode) && !confirmDeploy) {
+            System.err.println("Refusing to deploy AI-generated SQL directly to the database"
+                    + " without confirmation. Re-run with --yes to deploy, or use --output-mode file"
+                    + " to write the SQL for review before applying it.");
+            return 2;
+        }
+
         // Resolve secrets from the command line or, preferably, the environment, so
         // they need not appear in the process list or shell history. (An empty string
         // is a valid password, e.g. for trust/peer auth; only an absent one is an error.)

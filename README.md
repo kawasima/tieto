@@ -89,18 +89,18 @@ public interface OrderRepository {
 ### 3. Generate PostgreSQL Functions with tieto-generator
 
 ```bash
-# Using CLI (e.g. claude CLI) — no API key needed, deploys directly to DB
+# Using CLI (e.g. claude CLI) — no API key needed. --yes confirms the direct deploy.
 tieto generate \
   --source-dir src/main/java \
   --repository net.unit8.tieto.example.domain.OrderRepository \
   --db-url jdbc:postgresql://localhost:5432/tieto_example \
   --db-user tieto --db-password tieto \
-  --ai-provider claude-cli
+  --ai-provider claude-cli --yes
 
 # Using a custom CLI command
-tieto generate ... --ai-command "ollama run codellama"
+tieto generate ... --ai-command "ollama run codellama" --yes
 
-# Output to file instead of deploying directly
+# Recommended for production: write SQL to a file, review it, then apply it
 tieto generate ... --output-mode file
 
 # Using API directly
@@ -117,7 +117,7 @@ export TIETO_DB_PASSWORD=...   # picked up automatically; nothing on argv
 tieto generate ... --db-user tieto --ai-provider claude   # prompts for the key, or reads TIETO_AI_API_KEY
 ```
 
-The AI reads the Repository interface Javadoc + the live database schema and produces PostgreSQL Functions. By default, functions are deployed directly to the database. Use `--output-mode file` to write SQL files instead.
+The AI reads the Repository interface Javadoc + the live database schema and produces PostgreSQL Functions. Deploying that SQL straight to the database requires an explicit `--yes`, since it is AI-generated. For production, the recommended workflow is `--output-mode file` → review the SQL → apply it deliberately; reserve direct deploy (`--yes`) for local/dev iteration.
 
 If a function version already exists in the database, it is skipped. Use `--force` to regenerate.
 
