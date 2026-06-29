@@ -5,6 +5,7 @@ import net.unit8.tieto.generator.ai.AiProviderFactory;
 import net.unit8.tieto.generator.ai.GeneratedFunction;
 import net.unit8.tieto.generator.ai.GeneratedSqlValidator;
 import net.unit8.tieto.generator.ai.PromptBuilder;
+import net.unit8.tieto.generator.parser.FunctionNaming;
 import net.unit8.tieto.generator.parser.GeneratorException;
 import net.unit8.tieto.generator.output.DirectDeployer;
 import net.unit8.tieto.generator.output.ReadSmokeVerifier;
@@ -146,6 +147,10 @@ public class GenerateCommand implements Callable<Integer> {
         RepositorySpec repoSpec = new RepositoryParser().parse(sourceDir, repositoryClassName);
         System.out.println("Found " + repoSpec.methods().size() + " methods");
 
+        // Fail before generating/deploying anything if two methods would map to
+        // the same PostgreSQL function name (overloads at the same version).
+        FunctionNaming.checkNoCollisions(repoSpec);
+
         // 2. Read DB schema
         List<TableInfo> schema;
         try (Connection conn = DriverManager.getConnection(dbUrl, dbUser, dbPassword)) {
@@ -162,7 +167,7 @@ public class GenerateCommand implements Callable<Integer> {
         List<MethodSpec> generatedMethods = new ArrayList<>();
         List<MethodSpec> deployedSpecMethods = new ArrayList<>();
         for (MethodSpec method : repoSpec.methods()) {
-            String versionedName = resolveFunctionName(repoSpec, method);
+            String versionedName = FunctionNaming.functionName(repoSpec, method);
 
             if (!force && functionExists(versionedName, repoSpec.simpleName())) {
                 System.out.println("Skipping " + versionedName + " (already exists)");
@@ -224,7 +229,7 @@ public class GenerateCommand implements Callable<Integer> {
      */
     private void emitRoundTripTest(RepositorySpec repoSpec, List<GeneratedFunction> functions)
             throws IOException {
-        String functionsResource = "tieto/" + camelToSnake(repoSpec.simpleName()) + "_functions.sql";
+        String functionsResource = "tieto/" + FunctionNaming.camelToSnake(repoSpec.simpleName()) + "_functions.sql";
         Path resourcesDir = testResourcesDir != null ? testResourcesDir
                 : deriveTestDir("resources");
         Path resourceFile = resourcesDir.resolve(functionsResource);
@@ -310,7 +315,7 @@ public class GenerateCommand implements Callable<Integer> {
     private String fetchDeployedFunctionsSql(RepositorySpec repoSpec) {
         List<String> expected = new ArrayList<>();
         for (MethodSpec method : repoSpec.methods()) {
-            String name = resolveFunctionName(repoSpec, method);
+            String name = FunctionNaming.functionName(repoSpec, method);
             expected.add(name);
             if (hasSpecParameter(method)) {
                 expected.add(name + "_spec_to_sql");
@@ -379,7 +384,7 @@ public class GenerateCommand implements Callable<Integer> {
         ReadSmokeVerifier smokeVerifier = new ReadSmokeVerifier();
         List<DirectDeployer.DeployVerification> verifications = new ArrayList<>();
         for (MethodSpec method : generatedMethods) {
-            String functionName = resolveFunctionName(repoSpec, method);
+            String functionName = FunctionNaming.functionName(repoSpec, method);
             SignatureVerifier.ExpectedSignature expected = SignatureVerifier.expectedFor(method);
             verifications.add(conn -> signatureVerifier.verify(conn, functionName, expected));
             if (ReadSmokeVerifier.isEligible(method)) {
@@ -404,7 +409,7 @@ public class GenerateCommand implements Callable<Integer> {
         SpecInjectionProbe probe = new SpecInjectionProbe();
         List<DirectDeployer.DeployVerification> probes = new ArrayList<>();
         for (MethodSpec method : specMethods) {
-            String functionName = resolveFunctionName(repoSpec, method);
+            String functionName = FunctionNaming.functionName(repoSpec, method);
             List<String> probeSpecs = SpecInjectionProbe.probeSpecsFor(specTypeOf(method));
             if (probeSpecs.isEmpty()) {
                 System.out.println("  (no string-typed leaf to probe " + functionName
@@ -426,11 +431,6 @@ public class GenerateCommand implements Callable<Integer> {
                 .filter(t -> t != null && t.sealed())
                 .findFirst()
                 .orElseThrow();
-    }
-
-    private static String resolveFunctionName(RepositorySpec repo, MethodSpec method) {
-        return camelToSnake(repo.simpleName()) + "_" + camelToSnake(method.name())
-                + "_v" + method.version();
     }
 
     /**
@@ -462,7 +462,7 @@ public class GenerateCommand implements Callable<Integer> {
     }
 
     private boolean functionExistsInFile(String functionName, String repositoryName) {
-        Path outputFile = outputDir.resolve(camelToSnake(repositoryName) + ".sql");
+        Path outputFile = outputDir.resolve(FunctionNaming.camelToSnake(repositoryName) + ".sql");
         if (!Files.exists(outputFile)) {
             return false;
         }
@@ -473,13 +473,6 @@ public class GenerateCommand implements Callable<Integer> {
                     "Failed to read " + outputFile + " to check for an existing function: "
                             + e.getMessage(), e);
         }
-    }
-
-    private static String camelToSnake(String camel) {
-        return camel
-                .replaceAll("([A-Z]+)([A-Z][a-z])", "$1_$2")
-                .replaceAll("([a-z0-9])([A-Z])", "$1_$2")
-                .toLowerCase();
     }
 
     private AiProvider createAiProvider() {
