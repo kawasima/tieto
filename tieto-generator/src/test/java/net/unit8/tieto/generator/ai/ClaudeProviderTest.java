@@ -47,9 +47,13 @@ class ClaudeProviderTest {
         server.stop(0);
     }
 
+    // Retry with a near-zero backoff so the retryable-status test stays fast.
+    private static final RetrySettings FAST_RETRY =
+            new RetrySettings(java.time.Duration.ofSeconds(5), 2, java.time.Duration.ofMillis(1));
+
     private ClaudeProvider provider() {
         String url = "http://localhost:" + server.getAddress().getPort() + "/v1/messages";
-        return new ClaudeProvider("test-key", "test-model", url, 8192);
+        return new ClaudeProvider("test-key", "test-model", url, 8192, FAST_RETRY);
     }
 
     @Test
