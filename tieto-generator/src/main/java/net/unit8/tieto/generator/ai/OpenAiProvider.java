@@ -15,15 +15,23 @@ public class OpenAiProvider extends AbstractHttpAiProvider {
     private static final String DEFAULT_API_URL = "https://api.openai.com/v1/chat/completions";
 
     public OpenAiProvider(String apiKey, String model) {
-        this(apiKey, model, DEFAULT_API_URL, DEFAULT_MAX_TOKENS);
+        this(apiKey, model, DEFAULT_MAX_TOKENS, RetrySettings.defaults());
     }
 
     public OpenAiProvider(String apiKey, String model, int maxTokens) {
-        this(apiKey, model, DEFAULT_API_URL, maxTokens);
+        this(apiKey, model, maxTokens, RetrySettings.defaults());
+    }
+
+    OpenAiProvider(String apiKey, String model, int maxTokens, RetrySettings retry) {
+        this(apiKey, model, DEFAULT_API_URL, maxTokens, retry);
     }
 
     OpenAiProvider(String apiKey, String model, String apiUrl, int maxTokens) {
-        super(apiKey, model != null ? model : "gpt-4o", apiUrl, maxTokens);
+        this(apiKey, model, apiUrl, maxTokens, RetrySettings.defaults());
+    }
+
+    OpenAiProvider(String apiKey, String model, String apiUrl, int maxTokens, RetrySettings retry) {
+        super(apiKey, model != null ? model : "gpt-4o", apiUrl, maxTokens, retry);
     }
 
     @Override

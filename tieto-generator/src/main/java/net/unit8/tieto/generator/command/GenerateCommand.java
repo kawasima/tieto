@@ -86,6 +86,16 @@ public class GenerateCommand implements Callable<Integer> {
                     + " large function is rejected as truncated. Default: ${DEFAULT-VALUE}")
     private int aiMaxTokens;
 
+    @Option(names = "--ai-request-timeout", defaultValue = "120",
+            description = "Per-request timeout in seconds for HTTP AI providers (claude, openai)."
+                    + " Default: ${DEFAULT-VALUE}")
+    private int aiRequestTimeoutSeconds;
+
+    @Option(names = "--ai-max-retries", defaultValue = "2",
+            description = "Retries on transient (HTTP 429/5xx or network) failures for HTTP AI"
+                    + " providers, with exponential backoff. Default: ${DEFAULT-VALUE}")
+    private int aiMaxRetries;
+
     @Option(names = "--output-dir", defaultValue = "sql/",
             description = "Output directory for generated SQL files")
     private Path outputDir;
@@ -490,6 +500,14 @@ public class GenerateCommand implements Callable<Integer> {
         if (aiMaxTokens < 1) {
             throw new GeneratorException("--ai-max-tokens must be at least 1, was " + aiMaxTokens);
         }
-        return AiProviderFactory.create(aiProvider, aiApiKey, aiModel, aiMaxTokens);
+        if (aiRequestTimeoutSeconds < 1) {
+            throw new GeneratorException(
+                    "--ai-request-timeout must be at least 1, was " + aiRequestTimeoutSeconds);
+        }
+        if (aiMaxRetries < 0) {
+            throw new GeneratorException("--ai-max-retries must not be negative, was " + aiMaxRetries);
+        }
+        return AiProviderFactory.create(
+                aiProvider, aiApiKey, aiModel, aiMaxTokens, aiRequestTimeoutSeconds, aiMaxRetries);
     }
 }
