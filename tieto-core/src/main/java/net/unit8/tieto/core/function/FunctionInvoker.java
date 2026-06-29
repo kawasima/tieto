@@ -7,6 +7,8 @@ import net.unit8.tieto.core.proxy.MethodMetadata;
 import net.unit8.tieto.core.proxy.ParameterInfo;
 import net.unit8.tieto.core.proxy.ReturnTypeHandler;
 import org.postgresql.util.PGobject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
 import java.sql.*;
@@ -15,6 +17,7 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.StringJoiner;
 
 /**
  * Executes PostgreSQL functions via JDBC.
@@ -23,6 +26,15 @@ import java.util.Optional;
  * CallableStatement, which works naturally with SETOF return types and JSONB.</p>
  */
 public final class FunctionInvoker {
+
+    private static final Logger log = LoggerFactory.getLogger(FunctionInvoker.class);
+
+    /**
+     * Calls slower than this (ms) are logged at WARN. Override with the
+     * {@code tieto.slow-call-threshold-ms} system property; 0 or negative disables it.
+     */
+    private static final long SLOW_CALL_THRESHOLD_MS =
+            Long.getLong("tieto.slow-call-threshold-ms", 1000L);
 
     private FunctionInvoker() {}
 
@@ -44,22 +56,63 @@ public final class FunctionInvoker {
 
         String sql = buildSql(functionName, metadata.parameters().size());
 
+        if (log.isDebugEnabled()) {
+            // Argument shapes only (types/cardinality), never values — they may be sensitive.
+            log.debug("Calling {}({})", functionName, argumentShapes(metadata.parameters()));
+        }
+
+        long startNanos = System.nanoTime();
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             bindParameters(ps, metadata.parameters(), args, mapperRegistry);
 
+            Object result;
             if (metadata.returnTypeHandler() instanceof ReturnTypeHandler.VoidHandler) {
                 ps.execute();
-                return null;
+                result = null;
+            } else {
+                try (ResultSet rs = ps.executeQuery()) {
+                    result = metadata.returnTypeHandler().extractResult(rs, mapperRegistry);
+                }
             }
-
-            try (ResultSet rs = ps.executeQuery()) {
-                return metadata.returnTypeHandler().extractResult(rs, mapperRegistry);
-            }
+            logCompletion(functionName, startNanos);
+            return result;
         } catch (SQLException e) {
+            long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
+            log.warn("Function {} failed after {} ms (SQLSTATE={}): {}",
+                    functionName, elapsedMs, e.getSQLState(), e.getMessage());
             throw new FunctionCallException(
                     "Failed to call function: " + functionName, e);
         }
+    }
+
+    private static void logCompletion(String functionName, long startNanos) {
+        if (SLOW_CALL_THRESHOLD_MS <= 0 && !log.isDebugEnabled()) {
+            return;
+        }
+        long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
+        if (SLOW_CALL_THRESHOLD_MS > 0 && elapsedMs >= SLOW_CALL_THRESHOLD_MS) {
+            log.warn("Function {} was slow: {} ms (threshold {} ms)",
+                    functionName, elapsedMs, SLOW_CALL_THRESHOLD_MS);
+        } else if (log.isDebugEnabled()) {
+            log.debug("Function {} completed in {} ms", functionName, elapsedMs);
+        }
+    }
+
+    /** Renders parameter types/cardinality (not values) for debug logging. */
+    private static String argumentShapes(List<ParameterInfo> parameters) {
+        StringJoiner joiner = new StringJoiner(", ");
+        for (ParameterInfo p : parameters) {
+            String shape = p.type().getSimpleName();
+            if (p.isOptional()) {
+                shape = "Optional<" + shape + ">";
+            }
+            if (p.isDomainObject()) {
+                shape += " jsonb";
+            }
+            joiner.add(shape);
+        }
+        return joiner.toString();
     }
 
     /**

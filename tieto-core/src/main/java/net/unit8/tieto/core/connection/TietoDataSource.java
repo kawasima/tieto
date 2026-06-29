@@ -1,5 +1,7 @@
 package net.unit8.tieto.core.connection;
 
+import org.slf4j.LoggerFactory;
+
 import java.io.PrintWriter;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -40,6 +42,9 @@ import javax.sql.DataSource;
  */
 public final class TietoDataSource implements DataSource {
 
+    // Fully qualified to avoid clashing with the java.util.logging.Logger used by getParentLogger().
+    private static final org.slf4j.Logger log = LoggerFactory.getLogger(TietoDataSource.class);
+
     private final DataSource target;
     private final TxBinding binding;
 
@@ -64,9 +69,11 @@ public final class TietoDataSource implements DataSource {
      */
     public <R> R inTransaction(TransactionalWork<R> work) throws SQLException {
         if (binding.current() != null) {
+            log.debug("Joining the enclosing transaction");
             return work.execute();   // join the enclosing transaction
         }
         Connection conn = target.getConnection();
+        log.debug("Began transaction on a new connection");
         boolean priorAutoCommit = true;
         boolean autoCommitChanged = false;
         boolean resolved = false;   // the transaction was definitively committed or rolled back
@@ -79,13 +86,16 @@ public final class TietoDataSource implements DataSource {
             R result = binding.runBound(conn, work);
             conn.commit();
             resolved = true;
+            log.debug("Committed transaction");
             return result;
         } catch (Throwable t) {
             try {
                 conn.rollback();
                 resolved = true;
+                log.debug("Rolled back transaction", t);
             } catch (SQLException e) {
                 t.addSuppressed(e);   // leave resolved=false: there may be in-doubt work
+                log.warn("Transaction rollback failed; connection may have in-doubt work", e);
             }
             throw t;
         } finally {
@@ -115,7 +125,12 @@ public final class TietoDataSource implements DataSource {
     @Override
     public Connection getConnection() throws SQLException {
         Connection bound = binding.current();
-        return bound != null ? NonClosingConnection.wrap(bound) : target.getConnection();
+        if (bound != null) {
+            log.debug("Reusing the transaction's connection (released, not closed, on close())");
+            return NonClosingConnection.wrap(bound);
+        }
+        log.debug("Acquired a fresh connection (closed on close())");
+        return target.getConnection();
     }
 
     @Override
