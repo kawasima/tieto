@@ -24,9 +24,13 @@ import javax.sql.DataSource;
  * is released (not physically closed) while a transaction is active.</p>
  *
  * <p>Ordered after {@code DataSourceAutoConfiguration} and guarded by
- * {@link ConditionalOnSingleCandidate}, so it backs off cleanly (rather than
- * failing context refresh) when there is no {@link DataSource}, or several with
- * no {@code @Primary}.</p>
+ * {@link ConditionalOnSingleCandidate}, so the {@code TietoClient} bean backs
+ * off (rather than failing context refresh) when there is no {@link DataSource},
+ * or several with no {@code @Primary}. This lets the dependency sit on the
+ * classpath of a module that does not use tieto. Note that a module that
+ * <em>does</em> wire tieto repositories (via {@code tieto.base-packages} or
+ * {@link EnableTietoRepositories}) without a resolvable {@code DataSource} still
+ * fails refresh — correctly, since those repositories cannot be created.</p>
  *
  * <p>To add explicit mappers or a custom function-name resolver, register a
  * {@link TietoClientCustomizer} bean rather than replacing the {@code TietoClient}
