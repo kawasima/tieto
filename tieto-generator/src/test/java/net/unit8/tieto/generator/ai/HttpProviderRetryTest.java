@@ -114,6 +114,16 @@ class HttpProviderRetryTest {
     }
 
     @Test
+    void oversizedRetryAfterIsIgnoredAndStillRetries() {
+        statusScript = new int[]{429, 200};
+        retryAfterHeader = "999999999999"; // 12 digits — rejected, falls back to backoff, no crash
+
+        provider(2).generateFunction("p");
+
+        assertThat(requestCount.get()).isEqualTo(2);
+    }
+
+    @Test
     void zeroRetriesFailsOnFirstTransientError() {
         statusScript = new int[]{429};
 

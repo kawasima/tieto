@@ -31,6 +31,11 @@ abstract class AbstractHttpAiProvider implements AiProvider {
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
 
+    // Upper bound on any single backoff wait, so neither exponential growth (a
+    // large --ai-max-retries) nor a server's Retry-After can stall the run for
+    // an unreasonable time, and the duration arithmetic cannot overflow.
+    private static final Duration MAX_BACKOFF = Duration.ofSeconds(60);
+
     protected final String apiKey;
     protected final int maxTokens;
     protected final ObjectMapper objectMapper;
@@ -115,25 +120,39 @@ abstract class AbstractHttpAiProvider implements AiProvider {
         return status == 429 || (status >= 500 && status < 600);
     }
 
-    /** The {@code Retry-After} delay in whole seconds, if the response gives one. */
+    /**
+     * The {@code Retry-After} delay in whole seconds, if the response gives a
+     * plain numeric one. Values over 9 digits are ignored (the backoff is used
+     * instead) so an oversized header cannot overflow the duration arithmetic;
+     * the wait is capped at {@link #MAX_BACKOFF} regardless.
+     */
     private static Duration retryAfter(HttpResponse<String> response) {
         return response.headers().firstValue("Retry-After")
                 .map(String::trim)
-                .filter(value -> value.chars().allMatch(Character::isDigit) && !value.isEmpty())
+                .filter(value -> !value.isEmpty() && value.length() <= 9
+                        && value.chars().allMatch(Character::isDigit))
                 .map(seconds -> Duration.ofSeconds(Long.parseLong(seconds)))
                 .orElse(null);
     }
 
     private void sleepBackoff(int attempt, Duration retryAfter) {
-        Duration delay = retryAfter != null
-                ? retryAfter
-                : retry.baseBackoff().multipliedBy(1L << attempt);
+        Duration delay = retryAfter != null ? retryAfter : exponentialBackoff(attempt);
+        if (delay.compareTo(MAX_BACKOFF) > 0) {
+            delay = MAX_BACKOFF;
+        }
         try {
             Thread.sleep(Math.max(0, delay.toMillis()));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new GeneratorException(providerName() + " API retry was interrupted", e);
         }
+    }
+
+    private Duration exponentialBackoff(int attempt) {
+        // Saturate the shift so base * 2^attempt cannot overflow a long; the
+        // result is clamped to MAX_BACKOFF anyway, so a saturated exponent is fine.
+        int shift = Math.min(attempt, 30);
+        return retry.baseBackoff().multipliedBy(1L << shift);
     }
 
     /**
