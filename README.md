@@ -263,6 +263,8 @@ TietoClient tieto = TietoClient.builder(dataSource)
 | `-Dtieto.query-timeout-seconds=<s>` | `30` | Per-statement query timeout; `0` disables it |
 | `-Dtieto.fetch-size=<n>` | `0` | JDBC fetch size for `SETOF` reads; `0` = driver default |
 
+> **Upgrade note.** The non-zero default query timeout is a behavioral change: earlier versions ran each call unbounded. A repository call whose function legitimately runs longer than 30 seconds (a heavy report, a bulk write) will now be cancelled and surface as a `FunctionCallException` (PostgreSQL `SQLSTATE 57014`). Raise `queryTimeoutSeconds` for those calls, or set it to `0` to restore the old unbounded behavior.
+
 ## Modules
 
 | Module | Role |
