@@ -18,6 +18,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Parses a Repository interface Java source file using JavaParser,
@@ -88,7 +90,22 @@ public class RepositoryParser {
         }
         // Sub-interface methods are recorded before recursing into supers, so an
         // overriding declaration (same signature) wins over the inherited one.
+        Set<String> typeVariables = iface.getTypeParameters().stream()
+                .map(tp -> tp.getNameAsString())
+                .collect(Collectors.toSet());
         for (MethodDeclaration md : iface.getMethods()) {
+            // A method whose return or parameter type is one of the declaring
+            // interface's type variables (E, ID, ...) cannot be resolved without
+            // type-argument substitution, which we do not perform. Emitting it
+            // verbatim would feed meaningless type names to SQL generation, so
+            // skip it loudly rather than generate a wrong function.
+            if (usesTypeVariable(md, typeVariables)) {
+                System.err.println("Warning: skipping inherited method "
+                        + iface.getNameAsString() + "." + md.getNameAsString()
+                        + " because it uses unresolved type variable(s) " + typeVariables
+                        + "; generic super-interface type arguments are not substituted");
+                continue;
+            }
             acc.putIfAbsent(signature(md), new OwnedMethod(md, unit));
         }
         for (ClassOrInterfaceType extended : iface.getExtendedTypes()) {
@@ -105,12 +122,33 @@ public class RepositoryParser {
         }
     }
 
-    /** Name plus erased parameter types — enough to detect an override. */
+    /** True if the method's return or any parameter type references one of the given type variables. */
+    private static boolean usesTypeVariable(MethodDeclaration md, Set<String> typeVariables) {
+        if (typeVariables.isEmpty()) {
+            return false;
+        }
+        return Stream.concat(Stream.of(md.getType()), md.getParameters().stream().map(p -> p.getType()))
+                .flatMap(type -> type.findAll(ClassOrInterfaceType.class).stream())
+                .anyMatch(t -> typeVariables.contains(t.getNameAsString()));
+    }
+
+    /**
+     * Name plus parameter types, used to detect an override. Parameter types are
+     * normalized to simple names (e.g. {@code java.util.List<com.example.Order>}
+     * -> {@code List<Order>}) so a genuine override spelled with a different but
+     * identical type is not mistaken for a separate overload. Without a symbol
+     * solver this is best-effort, not a full erasure.
+     */
     private static String signature(MethodDeclaration md) {
         return md.getNameAsString() + "(" + md.getParameters().stream()
-                .map(p -> p.getType().asString())
+                .map(p -> normalizeType(p.getType().asString()))
                 .reduce((a, b) -> a + "," + b)
                 .orElse("") + ")";
+    }
+
+    private static String normalizeType(String type) {
+        return type.replaceAll("\\s+", "")
+                .replaceAll("(?:[A-Za-z_$][\\w$]*\\.)+([A-Za-z_$][\\w$]*)", "$1");
     }
 
     /** A method declaration paired with the compilation unit that declares it. */

@@ -131,6 +131,45 @@ class RepositoryParserTest {
     }
 
     @Test
+    void methodsUsingUnresolvedSuperInterfaceTypeVariablesAreSkipped() throws IOException {
+        writeSource("com.example.BaseRepository", """
+                package com.example;
+                public interface BaseRepository<E, ID> {
+                    E findById(ID id);
+                    long count();
+                }
+                """);
+        writeSource("com.example.OrderRepository", """
+                package com.example;
+                public interface OrderRepository extends BaseRepository<String, Long> {
+                    String findAll();
+                }
+                """);
+        RepositorySpec spec = new RepositoryParser().parse(sourceDir, "com.example.OrderRepository");
+        // findById(ID) -> E references the base's type variables and is skipped;
+        // count() and findAll() carry no type variables and are kept.
+        assertThat(methodNames(spec)).containsExactlyInAnyOrder("findAll", "count");
+    }
+
+    @Test
+    void overrideWithDifferentlySpelledTypeIsDedupedOnce() throws IOException {
+        writeSource("com.example.BaseRepository", """
+                package com.example;
+                public interface BaseRepository {
+                    String findById(java.lang.String id);
+                }
+                """);
+        writeSource("com.example.OrderRepository", """
+                package com.example;
+                public interface OrderRepository extends BaseRepository {
+                    String findById(String id);
+                }
+                """);
+        RepositorySpec spec = new RepositoryParser().parse(sourceDir, "com.example.OrderRepository");
+        assertThat(methodNames(spec)).containsExactly("findById");
+    }
+
+    @Test
     void unresolvableSuperInterfaceDoesNotDropOwnMethods() throws IOException {
         writeSource("com.example.OrderRepository", """
                 package com.example;
