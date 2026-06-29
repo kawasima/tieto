@@ -59,4 +59,15 @@ class SqlFileWriterTest {
                 .contains("-- Generator: TestProvider model=test")
                 .contains("FUNCTION order_repository_a_v1()");
     }
+
+    @Test
+    void flattensNewlinesInTheProvenanceSoItCannotBreakOutOfTheComment(@TempDir Path dir) throws IOException {
+        new SqlFileWriter().write(dir, "OrderRepository", List.of(fn("order_repository_a_v1")), false,
+                "OpenAI model=x\n; DROP TABLE orders");
+
+        // The injected newline is flattened, so the whole provenance stays on one -- line.
+        assertThat(read(dir))
+                .contains("-- Generator: OpenAI model=x ; DROP TABLE orders")
+                .doesNotContain("\n; DROP TABLE orders");
+    }
 }
