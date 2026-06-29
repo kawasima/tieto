@@ -123,6 +123,14 @@ public record ParameterInfo(
      * The element {@code E} of a {@code Collection<E>}-typed parameter, or {@code null}
      * when the parameter is not a collection or its element is not a concrete class. Used
      * to register the discriminator for sealed element types serialized inside a JSONB array.
+     *
+     * <p>Scope: top-level {@code Collection} (e.g. {@code List}/{@code Set}) element types
+     * only — the shapes #47 targets. A sealed type reached only through a non-collection
+     * generic container ({@code Map<K, Spec>}, a wildcard {@code List<? extends Spec>}, or a
+     * nested generic element {@code List<Optional<Spec>>}) is not registered here and would
+     * serialize without its {@code "kind"} tag; those shapes are not part of the documented
+     * Repository-parameter contract. A direct sealed parameter or {@code Optional<Spec>} is
+     * handled by the normal (non-collection) path via {@link #rawClassOf(Type)}.</p>
      */
     private static Class<?> collectionElementType(Type type) {
         if (type instanceof ParameterizedType pt

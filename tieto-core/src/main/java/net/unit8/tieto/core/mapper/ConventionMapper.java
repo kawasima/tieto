@@ -147,17 +147,7 @@ public final class ConventionMapper {
     private ObjectMapper mapperFor(Class<?> type) {
         // Cache per type, including the no-sealed-types case, so the reflective
         // graph walk runs at most once per type rather than on every bind/return.
-        return configuredMappers.computeIfAbsent(type, t -> {
-            Set<Class<?>> sealedTypes = collectSealedTypes(t);
-            if (sealedTypes.isEmpty()) {
-                return objectMapper;
-            }
-            ObjectMapper copy = objectMapper.copy();
-            for (Class<?> sealed : sealedTypes) {
-                registerKind(copy, sealed);
-            }
-            return copy;
-        });
+        return configuredMappers.computeIfAbsent(type, t -> configuredMapper(collectSealedTypes(t)));
     }
 
     /**
@@ -171,6 +161,15 @@ public final class ConventionMapper {
         }
         Set<Class<?>> sealedTypes = collectSealedTypes(type);
         sealedTypes.addAll(collectSealedTypes(elementType));
+        return configuredMapper(sealedTypes);
+    }
+
+    /**
+     * The plain mapper when {@code sealedTypes} is empty, otherwise a copy with the
+     * {@code "kind"} mix-in registered for each. Shared by both {@code mapperFor} overloads so
+     * the registration logic lives in one place.
+     */
+    private ObjectMapper configuredMapper(Set<Class<?>> sealedTypes) {
         if (sealedTypes.isEmpty()) {
             return objectMapper;
         }
