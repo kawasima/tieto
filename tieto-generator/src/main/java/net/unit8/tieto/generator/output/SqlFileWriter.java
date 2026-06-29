@@ -1,6 +1,7 @@
 package net.unit8.tieto.generator.output;
 
 import net.unit8.tieto.generator.ai.GeneratedFunction;
+import net.unit8.tieto.generator.parser.FunctionNaming;
 import net.unit8.tieto.generator.parser.GeneratorException;
 
 import java.io.IOException;
@@ -31,7 +32,7 @@ public final class SqlFileWriter {
                       List<GeneratedFunction> functions, boolean replaceExisting) {
         try {
             Files.createDirectories(outputDir);
-            Path outputFile = outputDir.resolve(camelToSnake(repositoryName) + ".sql");
+            Path outputFile = outputDir.resolve(FunctionNaming.camelToSnake(repositoryName) + ".sql");
             String functionBlocks = renderFunctions(functions);
 
             if (replaceExisting || !Files.exists(outputFile)) {
@@ -56,12 +57,5 @@ public final class SqlFileWriter {
             sb.append("\n\n");
         }
         return sb.toString();
-    }
-
-    private static String camelToSnake(String camel) {
-        return camel
-                .replaceAll("([A-Z]+)([A-Z][a-z])", "$1_$2")
-                .replaceAll("([a-z0-9])([A-Z])", "$1_$2")
-                .toLowerCase();
     }
 }

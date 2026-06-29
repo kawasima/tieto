@@ -1,6 +1,7 @@
 package net.unit8.tieto.generator.ai;
 
 import net.unit8.tieto.generator.parser.ComponentDef;
+import net.unit8.tieto.generator.parser.FunctionNaming;
 import net.unit8.tieto.generator.parser.MethodSpec;
 import net.unit8.tieto.generator.parser.ParameterSpec;
 import net.unit8.tieto.generator.parser.RepositorySpec;
@@ -21,7 +22,7 @@ public class PromptBuilder {
      * Builds a prompt for generating a single PostgreSQL function.
      */
     public String build(RepositorySpec repo, MethodSpec method, List<TableInfo> schema) {
-        String functionName = resolveFunctionName(repo, method);
+        String functionName = FunctionNaming.functionName(repo, method);
         return """
                 You are a PostgreSQL expert. Generate the PostgreSQL function(s) based on the \
                 following specification.
@@ -234,17 +235,5 @@ public class PromptBuilder {
             sb.append('\n');
         }
         return sb.toString();
-    }
-
-    private String resolveFunctionName(RepositorySpec repo, MethodSpec method) {
-        return camelToSnake(repo.simpleName()) + "_" + camelToSnake(method.name())
-                + "_v" + method.version();
-    }
-
-    private static String camelToSnake(String camel) {
-        return camel
-                .replaceAll("([A-Z]+)([A-Z][a-z])", "$1_$2")
-                .replaceAll("([a-z0-9])([A-Z])", "$1_$2")
-                .toLowerCase();
     }
 }

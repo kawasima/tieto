@@ -70,6 +70,7 @@ Docker PostgreSQL: `localhost:5432`, db=`tieto_example`, user=`tieto`, password=
 - Package: `net.unit8.tieto.{module}`
 - PostgreSQL function names: `{repository_name}_{method_name}_v{N}` in snake_case
   - `OrderRepository.findById()` (v1) → `order_repository_find_by_id_v1`
+  - The name carries no parameter-type discriminator, so overloaded methods at the same version collide; the generator rejects them at generation time (`FunctionNaming.checkNoCollisions`). Disambiguate with distinct `@FunctionVersion` values.
 
 ### JSONB Mapping
 - Jackson `ObjectMapper` with `JavaTimeModule`, `FAIL_ON_UNKNOWN_PROPERTIES=false`, dates as ISO strings
