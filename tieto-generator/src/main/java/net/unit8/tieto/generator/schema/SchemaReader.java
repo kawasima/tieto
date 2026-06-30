@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -12,10 +13,11 @@ import java.util.List;
  */
 public class SchemaReader {
 
+    /** {@code null} means "resolve the connection's {@code current_schema()} at read time". */
     private final String schemaName;
 
     public SchemaReader() {
-        this("public");
+        this(null);
     }
 
     public SchemaReader(String schemaName) {
@@ -23,25 +25,40 @@ public class SchemaReader {
     }
 
     /**
-     * Reads all tables and their metadata from the database.
+     * Reads all tables and their metadata from the database. When no schema was given, the
+     * connection's {@code current_schema()} is used — the same search-path-relative schema in
+     * which the generator's existence checks and unqualified {@code CREATE} operate, so the
+     * three never read a different schema than they write to.
      */
     public List<TableInfo> readSchema(Connection conn) throws SQLException {
+        String schema = effectiveSchema(conn);
         List<TableInfo> tables = new ArrayList<>();
         DatabaseMetaData meta = conn.getMetaData();
 
-        try (ResultSet rs = meta.getTables(null, schemaName, "%", new String[]{"TABLE"})) {
+        try (ResultSet rs = meta.getTables(null, schema, "%", new String[]{"TABLE"})) {
             while (rs.next()) {
                 String tableName = rs.getString("TABLE_NAME");
-                List<ColumnInfo> columns = readColumns(meta, tableName);
-                List<String> primaryKeys = readPrimaryKeys(meta, tableName);
-                List<ForeignKeyInfo> foreignKeys = readForeignKeys(meta, tableName);
+                List<ColumnInfo> columns = readColumns(meta, schema, tableName);
+                List<String> primaryKeys = readPrimaryKeys(meta, schema, tableName);
+                List<ForeignKeyInfo> foreignKeys = readForeignKeys(meta, schema, tableName);
                 tables.add(new TableInfo(tableName, columns, primaryKeys, foreignKeys));
             }
         }
         return tables;
     }
 
-    private List<ColumnInfo> readColumns(DatabaseMetaData meta, String tableName)
+    /** The configured schema, or the connection's {@code current_schema()} when none was set. */
+    private String effectiveSchema(Connection conn) throws SQLException {
+        if (schemaName != null) {
+            return schemaName;
+        }
+        try (Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery("SELECT current_schema()")) {
+            return rs.next() ? rs.getString(1) : "public";
+        }
+    }
+
+    private List<ColumnInfo> readColumns(DatabaseMetaData meta, String schemaName, String tableName)
             throws SQLException {
         List<ColumnInfo> columns = new ArrayList<>();
         try (ResultSet rs = meta.getColumns(null, schemaName, tableName, "%")) {
@@ -58,7 +75,7 @@ public class SchemaReader {
         return columns;
     }
 
-    private List<String> readPrimaryKeys(DatabaseMetaData meta, String tableName)
+    private List<String> readPrimaryKeys(DatabaseMetaData meta, String schemaName, String tableName)
             throws SQLException {
         List<String> pks = new ArrayList<>();
         try (ResultSet rs = meta.getPrimaryKeys(null, schemaName, tableName)) {
@@ -69,7 +86,7 @@ public class SchemaReader {
         return pks;
     }
 
-    private List<ForeignKeyInfo> readForeignKeys(DatabaseMetaData meta, String tableName)
+    private List<ForeignKeyInfo> readForeignKeys(DatabaseMetaData meta, String schemaName, String tableName)
             throws SQLException {
         List<ForeignKeyInfo> fks = new ArrayList<>();
         try (ResultSet rs = meta.getImportedKeys(null, schemaName, tableName)) {

@@ -70,6 +70,23 @@ class RepositoryParserTest {
     }
 
     @Test
+    void javadocBlockTagsReachTheSpec() throws IOException {
+        RepositorySpec spec = parseRepo("""
+                    /**
+                     * Find an order by id.
+                     * @param id the order id, must be positive
+                     * @return the order, or empty when none
+                     */
+                    java.util.Optional<String> findById(Long id);
+                """);
+        String javadoc = spec.methods().getFirst().javadoc();
+        assertThat(javadoc)
+                .contains("Find an order by id.")
+                .contains("@param id the order id, must be positive")
+                .contains("@return the order, or empty when none");
+    }
+
+    @Test
     void inheritedMethodsFromBaseInterfaceAreIncluded() throws IOException {
         writeSource("com.example.BaseRepository", """
                 package com.example;

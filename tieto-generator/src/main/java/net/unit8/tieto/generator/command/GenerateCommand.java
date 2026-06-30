@@ -31,6 +31,7 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.Callable;
 
 /**
@@ -165,6 +166,12 @@ public class GenerateCommand implements Callable<Integer> {
         aiApiKey = SecretOption.resolve(aiApiKey, System.getenv("TIETO_AI_API_KEY"));
         if (aiApiKey != null) {
             aiApiKey = aiApiKey.strip();
+        }
+
+        if (urlEmbedsPassword(dbUrl)) {
+            System.err.println("Warning: --db-url appears to embed a password; it is visible in the"
+                    + " process list and shell history. Prefer --db-user with the TIETO_DB_PASSWORD"
+                    + " environment variable (or --db-password to be prompted).");
         }
 
         System.out.println("Parsing repository: " + repositoryClassName);
@@ -383,6 +390,28 @@ public class GenerateCommand implements Callable<Integer> {
     private static String packageOf(String fullyQualifiedName) {
         int lastDot = fullyQualifiedName.lastIndexOf('.');
         return lastDot < 0 ? "" : fullyQualifiedName.substring(0, lastDot);
+    }
+
+    /**
+     * Whether a JDBC URL embeds a password — either as a {@code password=} query parameter or
+     * as {@code user:password@host} userinfo. Used only to warn; the username alone (no colon)
+     * is not treated as a secret.
+     */
+    static boolean urlEmbedsPassword(String url) {
+        if (url == null) {
+            return false;
+        }
+        if (url.toLowerCase(Locale.ROOT).contains("password=")) {
+            return true;
+        }
+        int schemeEnd = url.indexOf("://");
+        if (schemeEnd < 0) {
+            return false;
+        }
+        int authEnd = url.indexOf('/', schemeEnd + 3);
+        String authority = authEnd < 0 ? url.substring(schemeEnd + 3) : url.substring(schemeEnd + 3, authEnd);
+        int at = authority.indexOf('@');
+        return at > 0 && authority.lastIndexOf(':', at) >= 0;
     }
 
     /** Renders the functions as one SQL script, mirroring {@link SqlFileWriter}. */
