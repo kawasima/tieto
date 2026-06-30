@@ -37,6 +37,15 @@ public final class TietoClient {
     }
 
     /**
+     * The DataSource this client invokes functions over. Under Spring this is the
+     * {@code TransactionAwareDataSourceProxy} wrapping the application DataSource;
+     * exposed so the integration can verify the wrapping is in place.
+     */
+    public DataSource dataSource() {
+        return dataSource;
+    }
+
+    /**
      * Creates a builder backed by the given DataSource.
      *
      * <p>For transaction-aware behavior, pass a transaction-aware DataSource:
