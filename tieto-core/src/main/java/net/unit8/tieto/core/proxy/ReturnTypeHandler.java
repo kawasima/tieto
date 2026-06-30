@@ -37,9 +37,14 @@ public sealed interface ReturnTypeHandler {
             DomainMapper mapper = registry.resolve(elementType);
             while (rs.next()) {
                 String json = rs.getString(1);
-                if (json != null) {
-                    results.add(mapper.fromJson(json, elementType));
+                if (json == null) {
+                    // A SQL NULL row would otherwise be dropped silently, yielding a list
+                    // shorter than the row count; a List element cannot be null, so signal it.
+                    throw new FunctionCallException(
+                            "SETOF function returned a SQL NULL row for List element type "
+                                    + elementType.getName());
                 }
+                results.add(mapper.fromJson(json, elementType));
             }
             return Collections.unmodifiableList(results);
         }
