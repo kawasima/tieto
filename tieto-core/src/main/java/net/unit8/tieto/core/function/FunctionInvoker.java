@@ -157,7 +157,10 @@ public final class FunctionInvoker {
             }
 
             if (arg == null) {
-                ps.setNull(i + 1, Types.NULL);
+                // A null domain (JSONB) argument is bound as Types.OTHER so PostgreSQL infers
+                // the parameter's actual type (e.g. jsonb) from the function signature; a null
+                // simple argument uses Types.NULL, which pgjdbc maps to an untyped SQL NULL.
+                ps.setNull(i + 1, info.isDomainObject() ? Types.OTHER : Types.NULL);
             } else if (info.isDomainObject()) {
                 DomainMapper<Object> mapper =
                         (DomainMapper<Object>) mapperRegistry.resolve(info.type(), info.elementType());
@@ -167,6 +170,9 @@ public final class FunctionInvoker {
                 pgObj.setValue(json);
                 ps.setObject(i + 1, pgObj);
             } else if (arg instanceof Enum<?> enumVal) {
+                // Convention: an enum argument binds as its name() to a PostgreSQL `text`
+                // parameter. A function declaring a real enum-typed argument would need an
+                // explicit cast (text -> enum has no implicit cast); keep the parameter `text`.
                 ps.setString(i + 1, enumVal.name());
             } else if (arg instanceof Instant instant) {
                 // pgjdbc's setObject cannot infer a SQL type for Instant; bind it as
