@@ -1,6 +1,8 @@
 package net.unit8.tieto.spring;
 
 import net.unit8.tieto.core.annotation.TietoRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConstructorArgumentValues.ValueHolder;
@@ -10,6 +12,7 @@ import org.springframework.context.annotation.ClassPathScanningCandidateComponen
 import org.springframework.core.type.filter.AnnotationTypeFilter;
 
 import java.beans.Introspector;
+import java.util.Set;
 
 /**
  * Scans base packages for interfaces annotated with {@link TietoRepository} and
@@ -18,6 +21,8 @@ import java.beans.Introspector;
  * in {@link TietoAutoConfiguration}.
  */
 final class TietoRepositoryScanner {
+
+    private static final Logger log = LoggerFactory.getLogger(TietoRepositoryScanner.class);
 
     private TietoRepositoryScanner() {
     }
@@ -38,7 +43,15 @@ final class TietoRepositoryScanner {
             if (basePackage == null || basePackage.isBlank()) {
                 continue;
             }
-            for (BeanDefinition candidate : scanner.findCandidateComponents(basePackage)) {
+            Set<BeanDefinition> candidates = scanner.findCandidateComponents(basePackage);
+            if (candidates.isEmpty()) {
+                // A configured package that matches nothing is almost always a typo or a
+                // missing @TietoRepository; surface it rather than silently scanning nothing.
+                log.warn("No @TietoRepository interfaces found in base package \"{}\""
+                        + " (check for a typo or a missing @TietoRepository annotation).", basePackage);
+                continue;
+            }
+            for (BeanDefinition candidate : candidates) {
                 String beanClassName = candidate.getBeanClassName();
                 if (beanClassName == null) {
                     continue;
