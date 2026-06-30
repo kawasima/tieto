@@ -2,6 +2,7 @@ package net.unit8.tieto.core.proxy;
 
 import net.unit8.tieto.core.StubDataSource;
 import net.unit8.tieto.core.function.DefaultFunctionNameResolver;
+import net.unit8.tieto.core.function.InvocationConfig;
 import net.unit8.tieto.core.mapper.MapperRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -28,7 +29,8 @@ class RepositoryInvocationHandlerTest {
                 SampleRepository.class,
                 new StubDataSource(),
                 MapperRegistry.builder().build(),
-                new DefaultFunctionNameResolver());
+                new DefaultFunctionNameResolver(),
+                InvocationConfig.fromSystemProperties());
         return (SampleRepository) Proxy.newProxyInstance(
                 getClass().getClassLoader(),
                 new Class<?>[]{SampleRepository.class},
