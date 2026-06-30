@@ -1,9 +1,13 @@
 package net.unit8.tieto.spring;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import net.unit8.tieto.core.TietoClient;
 import net.unit8.tieto.spring.testrepos.PlainService;
 import net.unit8.tieto.spring.testrepos.SampleRepository;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
@@ -40,6 +44,26 @@ class TietoPropertyRegistrationTest {
     @Test
     void registersNothingWhenThePropertyIsAbsent() {
         runner.run(ctx -> assertThat(ctx).doesNotHaveBean(SampleRepository.class));
+    }
+
+    @Test
+    void warnsWhenAConfiguredBasePackageMatchesNoRepositories() {
+        ListAppender<ILoggingEvent> log = captureScannerLog();
+        runner.withPropertyValues("tieto.base-packages=net.unit8.tieto.nonexistent")
+                .run(ctx -> assertThat(log.list).anySatisfy(event -> {
+                    assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                    assertThat(event.getFormattedMessage()).contains("net.unit8.tieto.nonexistent");
+                }));
+    }
+
+    private static ListAppender<ILoggingEvent> captureScannerLog() {
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(TietoRepositoryScanner.class);
+        logger.setLevel(Level.DEBUG);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        return appender;
     }
 
     @Test
