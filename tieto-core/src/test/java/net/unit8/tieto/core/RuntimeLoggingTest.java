@@ -48,7 +48,7 @@ class RuntimeLoggingTest {
         Method anyMethod = Object.class.getMethod("toString");
         MethodMetadata metadata = new MethodMetadata(anyMethod, "order_repository_find_by_id_v1",
                 new ReturnTypeHandler.VoidHandler(),
-                List.of(new ParameterInfo(0, "id", Long.class, false, false)));
+                List.of(new ParameterInfo(0, "id", Long.class, null, false, false)));
         DataSource failing = new StubDataSource() {
             @Override
             public Connection getConnection() throws SQLException {

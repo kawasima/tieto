@@ -151,7 +151,7 @@ public final class FunctionInvoker {
                 ps.setNull(i + 1, Types.NULL);
             } else if (info.isDomainObject()) {
                 DomainMapper<Object> mapper =
-                        (DomainMapper<Object>) mapperRegistry.resolve(info.type());
+                        (DomainMapper<Object>) mapperRegistry.resolve(info.type(), info.elementType());
                 String json = mapper.toJson(arg);
                 var pgObj = new PGobject();
                 pgObj.setType("jsonb");

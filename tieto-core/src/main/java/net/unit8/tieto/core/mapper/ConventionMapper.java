@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.jsontype.NamedType;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -16,6 +17,7 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.RecordComponent;
 import java.lang.reflect.Type;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -52,9 +54,13 @@ public final class ConventionMapper {
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "kind")
     private interface KindTypeInfo {}
 
+    /** Cache key for a container type carrying a sealed-bearing element type. */
+    private record ContainerKey(Class<?> type, Class<?> elementType) {}
+
     private final ObjectMapper objectMapper;
     private final ConcurrentMap<Class<?>, ObjectMapper> configuredMappers = new ConcurrentHashMap<>();
     private final ConcurrentMap<Class<?>, DomainMapper<?>> domainMappers = new ConcurrentHashMap<>();
+    private final ConcurrentMap<ContainerKey, DomainMapper<?>> containerMappers = new ConcurrentHashMap<>();
 
     public ConventionMapper() {
         this.objectMapper = new ObjectMapper()
@@ -74,15 +80,40 @@ public final class ConventionMapper {
         return (DomainMapper<T>) domainMappers.computeIfAbsent(type, this::buildDomainMapper);
     }
 
+    /**
+     * Returns (and caches) a {@link DomainMapper} for a collection-shaped value whose
+     * declared element is {@code elementType}. When {@code elementType} is {@code null}
+     * this is equivalent to {@link #forType(Class)}. Otherwise the discriminator is
+     * registered for any sealed hierarchy reachable from the element type — not just the
+     * container — and the element is serialized under its declared type so a sealed
+     * Specification element keeps its {@code "kind"} tag inside a JSONB array.
+     */
+    @SuppressWarnings("unchecked")
+    public <T> DomainMapper<T> forType(Class<T> type, Class<?> elementType) {
+        if (elementType == null) {
+            return forType(type);
+        }
+        return (DomainMapper<T>) containerMappers.computeIfAbsent(
+                new ContainerKey(type, elementType),
+                key -> buildDomainMapper(key.type(), key.elementType()));
+    }
+
     private DomainMapper<Object> buildDomainMapper(Class<?> type) {
-        ObjectMapper mapper = mapperFor(type);
+        return buildDomainMapper(type, null);
+    }
+
+    private DomainMapper<Object> buildDomainMapper(Class<?> type, Class<?> elementType) {
+        ObjectMapper mapper = mapperFor(type, elementType);
+        // For a collection element type, make the declared element type the sealed root so
+        // each element carries its "kind"; otherwise writerFor(type) does the same for the root.
+        JavaType writeType = (elementType != null && Collection.class.isAssignableFrom(type))
+                ? mapper.getTypeFactory().constructCollectionType(asCollection(type), elementType)
+                : mapper.getTypeFactory().constructType(type);
         return new DomainMapper<>() {
             @Override
             public String toJson(Object obj) {
                 try {
-                    // writerFor(type) makes the declared (static) type the sealed
-                    // root, so the root node also gets its "kind" discriminator.
-                    return mapper.writerFor(type).writeValueAsString(obj);
+                    return mapper.writerFor(writeType).writeValueAsString(obj);
                 } catch (JsonProcessingException e) {
                     throw new MappingException(
                             "Failed to serialize " + type.getName(), e);
@@ -101,6 +132,11 @@ public final class ConventionMapper {
         };
     }
 
+    @SuppressWarnings("unchecked")
+    private static Class<? extends Collection<?>> asCollection(Class<?> type) {
+        return (Class<? extends Collection<?>>) type;
+    }
+
     /**
      * Returns (and caches) an ObjectMapper for the given type. If any sealed
      * hierarchy is reachable from it — whether the type itself is sealed or it
@@ -111,17 +147,37 @@ public final class ConventionMapper {
     private ObjectMapper mapperFor(Class<?> type) {
         // Cache per type, including the no-sealed-types case, so the reflective
         // graph walk runs at most once per type rather than on every bind/return.
-        return configuredMappers.computeIfAbsent(type, t -> {
-            Set<Class<?>> sealedTypes = collectSealedTypes(t);
-            if (sealedTypes.isEmpty()) {
-                return objectMapper;
-            }
-            ObjectMapper copy = objectMapper.copy();
-            for (Class<?> sealed : sealedTypes) {
-                registerKind(copy, sealed);
-            }
-            return copy;
-        });
+        return configuredMappers.computeIfAbsent(type, t -> configuredMapper(collectSealedTypes(t)));
+    }
+
+    /**
+     * As {@link #mapperFor(Class)}, additionally registering any sealed hierarchy reachable
+     * from {@code elementType}. A container such as {@code List} reaches no sealed type on its
+     * own, so the element type must be inspected for the discriminator to be applied.
+     */
+    private ObjectMapper mapperFor(Class<?> type, Class<?> elementType) {
+        if (elementType == null) {
+            return mapperFor(type);
+        }
+        Set<Class<?>> sealedTypes = collectSealedTypes(type);
+        sealedTypes.addAll(collectSealedTypes(elementType));
+        return configuredMapper(sealedTypes);
+    }
+
+    /**
+     * The plain mapper when {@code sealedTypes} is empty, otherwise a copy with the
+     * {@code "kind"} mix-in registered for each. Shared by both {@code mapperFor} overloads so
+     * the registration logic lives in one place.
+     */
+    private ObjectMapper configuredMapper(Set<Class<?>> sealedTypes) {
+        if (sealedTypes.isEmpty()) {
+            return objectMapper;
+        }
+        ObjectMapper copy = objectMapper.copy();
+        for (Class<?> sealed : sealedTypes) {
+            registerKind(copy, sealed);
+        }
+        return copy;
     }
 
     /** Registers the {@code "kind"} mix-in for one sealed type and its direct subtypes. */

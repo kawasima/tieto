@@ -7,7 +7,9 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -79,6 +81,59 @@ class SealedSpecMappingTest {
         assertThat(or.get("kind").asText()).isEqualTo("or");
         assertThat(or.get("specs").get(1).get("kind").asText()).isEqualTo("not");
         assertThat(or.get("specs").get(1).get("spec").get("kind").asText()).isEqualTo("highValue");
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void listOfSpecsParameter_eachElementGetsKind() throws Exception {
+        // A `List<OrderSpec>` parameter: the element type drives the discriminator,
+        // since the container type (List) carries no sealed hierarchy of its own.
+        DomainMapper mapper = conventionMapper.forType((Class) List.class, OrderSpec.class);
+        List<OrderSpec> specs = List.of(
+                new ForCustomer("CUST-001"),
+                new HighValue(new BigDecimal("1000"))
+        );
+
+        JsonNode node = json.readTree(mapper.toJson(specs));
+
+        assertThat(node).hasSize(2);
+        assertThat(node.get(0).get("kind").asText()).isEqualTo("forCustomer");
+        assertThat(node.get(0).get("customerId").asText()).isEqualTo("CUST-001");
+        assertThat(node.get(1).get("kind").asText()).isEqualTo("highValue");
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void listOfSpecsParameter_nestedTreeGetsKindAtEveryNode() throws Exception {
+        DomainMapper mapper = conventionMapper.forType((Class) List.class, OrderSpec.class);
+        List<OrderSpec> specs = List.of(
+                new And(List.of(new ForCustomer("CUST-001"), new Not(new HighValue(new BigDecimal("100")))))
+        );
+
+        JsonNode node = json.readTree(mapper.toJson(specs));
+
+        JsonNode and = node.get(0);
+        assertThat(and.get("kind").asText()).isEqualTo("and");
+        assertThat(and.get("specs").get(0).get("kind").asText()).isEqualTo("forCustomer");
+        assertThat(and.get("specs").get(1).get("kind").asText()).isEqualTo("not");
+        assertThat(and.get("specs").get(1).get("spec").get("kind").asText()).isEqualTo("highValue");
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void setOfSpecsParameter_eachElementGetsKind() throws Exception {
+        // Any Collection container works, not just List: the element type drives the discriminator.
+        DomainMapper mapper = conventionMapper.forType((Class) Set.class, OrderSpec.class);
+        Set<OrderSpec> specs = new LinkedHashSet<>(List.of(
+                new ForCustomer("CUST-001"),
+                new HighValue(new BigDecimal("1000"))
+        ));
+
+        JsonNode node = json.readTree(mapper.toJson(specs));
+
+        assertThat(node).hasSize(2);
+        assertThat(node.get(0).get("kind").asText()).isEqualTo("forCustomer");
+        assertThat(node.get(1).get("kind").asText()).isEqualTo("highValue");
     }
 
     @Test
