@@ -9,6 +9,8 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.javadoc.Javadoc;
+import com.github.javaparser.javadoc.JavadocBlockTag;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -156,7 +158,7 @@ public class RepositoryParser {
 
     private MethodSpec toMethodSpec(MethodDeclaration md, CompilationUnit cu, TypeResolver typeResolver) {
         String javadoc = md.getJavadoc()
-                .map(jd -> jd.getDescription().toText())
+                .map(RepositoryParser::renderJavadoc)
                 .orElse("");
 
         List<ParameterSpec> params = md.getParameters().stream()
@@ -175,6 +177,28 @@ public class RepositoryParser {
                 javadoc,
                 version
         );
+    }
+
+    /**
+     * Renders a method's Javadoc as the prompt spec: the free-text description followed by
+     * its block tags ({@code @param}, {@code @return}, {@code @throws}). The Javadoc is the
+     * specification the AI generates from, so behavioural notes written in the tag sections
+     * must reach the prompt, not only the leading description.
+     */
+    private static String renderJavadoc(Javadoc jd) {
+        StringBuilder sb = new StringBuilder(jd.getDescription().toText());
+        for (JavadocBlockTag tag : jd.getBlockTags()) {
+            String content = tag.getContent().toText().strip();
+            if (content.isEmpty() && tag.getName().isEmpty()) {
+                continue;
+            }
+            sb.append('\n').append('@').append(tag.getTagName());
+            tag.getName().ifPresent(name -> sb.append(' ').append(name));
+            if (!content.isEmpty()) {
+                sb.append(' ').append(content);
+            }
+        }
+        return sb.toString().strip();
     }
 
     private static int extractVersion(MethodDeclaration md) {
