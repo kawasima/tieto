@@ -2,15 +2,18 @@ package net.unit8.tieto.core.proxy;
 
 import net.unit8.tieto.core.exception.FunctionCallException;
 
+import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.lang.reflect.WildcardType;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.*;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -75,15 +78,95 @@ public record ParameterInfo(
         for (int i = 0; i < params.length; i++) {
             Parameter p = params[i];
             boolean optional = p.getType() == Optional.class;
-            // For Optional<E>, bind as E; the bound generic type is E itself
-            // (which may be a concrete class or a collection such as List<X>).
-            Type bound = optional ? optionalElementGeneric(genericTypes[i]) : genericTypes[i];
-            Class<?> type = rawClassOf(bound);
-            Class<?> elementType = collectionElementType(bound);
+            Class<?> type;
+            Class<?> elementType;
+            if (optional) {
+                // For Optional<E>, bind as E; the element generic type is E itself
+                // (a concrete class or a collection such as List<X>).
+                Type bound = optionalElementGeneric(genericTypes[i]);
+                type = rawClassOf(bound);
+                elementType = collectionElementType(bound);
+            } else {
+                // Bind the parameter as its erased type, exactly as before — a bare type
+                // variable or generic array degrades to its Object/array erasure rather than
+                // failing analysis. The generic type is used only to capture a Collection's
+                // element type so a sealed element keeps its discriminator.
+                type = p.getType();
+                elementType = collectionElementType(genericTypes[i]);
+            }
+            rejectUnregistrableSealedType(genericTypes[i], type, elementType);
             boolean isDomain = !isSimpleType(type);
             result.add(new ParameterInfo(i, p.getName(), type, elementType, isDomain, optional));
         }
         return result;
+    }
+
+    /**
+     * Fails fast when a sealed type sits in a generic position from which the mapper would
+     * not register its {@code "kind"} discriminator — a {@code Map} value, a wildcard, or a
+     * nested generic ({@code List<Optional<Spec>>}). Without this, such a parameter would
+     * serialize a spec tree without {@code "kind"} and fail only later inside the PostgreSQL
+     * function with a confusing error. The supported positions are the parameter type itself
+     * ({@code Spec}, {@code Optional<Spec>}) and a direct collection element
+     * ({@code List<Spec>}); a sealed type reached only through a record element's <em>field</em>
+     * is registered by the mapper's field walk and is intentionally not flagged here, since
+     * this check only inspects generic type arguments, not field graphs.
+     */
+    private static void rejectUnregistrableSealedType(Type generic, Class<?> type, Class<?> elementType) {
+        Set<Class<?>> sealedInGenerics = new LinkedHashSet<>();
+        collectSealedInGenerics(generic, sealedInGenerics);
+        for (Class<?> sealed : sealedInGenerics) {
+            if (sealed != type && sealed != elementType) {
+                throw new FunctionCallException(
+                        "Unsupported parameter type " + generic.getTypeName()
+                                + ": the sealed type " + sealed.getSimpleName() + " sits in a generic"
+                                + " position tieto cannot register a \"kind\" discriminator for."
+                                + " Supported shapes are a direct sealed parameter, Optional<Spec>,"
+                                + " List<Spec>/Set<Spec>, and Optional<List<Spec>>; a Map value, a"
+                                + " wildcard, or a nested generic (e.g. List<Optional<Spec>>) is not.");
+            }
+        }
+    }
+
+    /**
+     * Collects sealed classes appearing in {@code type}'s own generic structure — its type
+     * arguments, array components, and wildcard bounds. Deliberately does not descend into a
+     * class's fields (that is the mapper's job), so a non-sealed record element holding a
+     * sealed field is not collected.
+     */
+    private static void collectSealedInGenerics(Type type, Set<Class<?>> out) {
+        switch (type) {
+            case Class<?> c -> {
+                if (!isJdk(c) && c.isSealed()) {
+                    out.add(c);
+                }
+                if (c.isArray()) {
+                    collectSealedInGenerics(c.getComponentType(), out);
+                }
+            }
+            case ParameterizedType pt -> {
+                collectSealedInGenerics(pt.getRawType(), out);
+                for (Type arg : pt.getActualTypeArguments()) {
+                    collectSealedInGenerics(arg, out);
+                }
+            }
+            case GenericArrayType ga -> collectSealedInGenerics(ga.getGenericComponentType(), out);
+            case WildcardType wt -> {
+                for (Type b : wt.getUpperBounds()) {
+                    collectSealedInGenerics(b, out);
+                }
+                for (Type b : wt.getLowerBounds()) {
+                    collectSealedInGenerics(b, out);
+                }
+            }
+            default -> { /* TypeVariable: erased, carries no concrete sealed class */ }
+        }
+    }
+
+    /** JDK types never declare tieto Specification hierarchies. */
+    private static boolean isJdk(Class<?> type) {
+        Package pkg = type.getPackage();
+        return pkg != null && pkg.getName().startsWith("java.");
     }
 
     /**
@@ -127,10 +210,10 @@ public record ParameterInfo(
      * <p>Scope: top-level {@code Collection} (e.g. {@code List}/{@code Set}) element types
      * only — the shapes #47 targets. A sealed type reached only through a non-collection
      * generic container ({@code Map<K, Spec>}, a wildcard {@code List<? extends Spec>}, or a
-     * nested generic element {@code List<Optional<Spec>>}) is not registered here and would
-     * serialize without its {@code "kind"} tag; those shapes are not part of the documented
-     * Repository-parameter contract. A direct sealed parameter or {@code Optional<Spec>} is
-     * handled by the normal (non-collection) path via {@link #rawClassOf(Type)}.</p>
+     * nested generic element {@code List<Optional<Spec>>}) is not captured here; rather than
+     * serialize without a {@code "kind"} tag, those shapes are rejected at analysis time by
+     * {@link #rejectUnregistrableSealedType(Type, Class, Class)}. A direct sealed parameter or
+     * {@code Optional<Spec>} is handled by the normal (non-collection) path.</p>
      */
     private static Class<?> collectionElementType(Type type) {
         if (type instanceof ParameterizedType pt

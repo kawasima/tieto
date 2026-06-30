@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -130,11 +131,70 @@ class ParameterInfoTest {
         assertThat(ParameterInfo.from(method).getFirst().elementType()).isNull();
     }
 
+    @Test
+    void from_bindsATypeVariableParameterAsItsErasure() throws NoSuchMethodException {
+        // A bare type variable erases to Object and binds as JSONB (unchanged behavior),
+        // rather than failing parameter analysis.
+        var method = GenericRepo.class.getMethod("save", Object.class);
+        ParameterInfo p = ParameterInfo.from(method).getFirst();
+        assertThat(p.type()).isEqualTo(Object.class);
+        assertThat(p.elementType()).isNull();
+        assertThat(p.isDomainObject()).isTrue();
+    }
+
+    @Test
+    void from_bindsAGenericArrayParameterAsItsErasure() throws NoSuchMethodException {
+        var method = GenericRepo.class.getMethod("saveAll", Object[].class);
+        ParameterInfo p = ParameterInfo.from(method).getFirst();
+        assertThat(p.type()).isEqualTo(Object[].class);
+        assertThat(p.isDomainObject()).isTrue();
+    }
+
+    @Test
+    void from_rejectsASealedTypeAsAMapValue() throws NoSuchMethodException {
+        var method = TestRepo.class.getMethod("findByMap", Map.class);
+        assertThatThrownBy(() -> ParameterInfo.from(method))
+                .isInstanceOf(FunctionCallException.class)
+                .hasMessageContaining("Unsupported parameter type");
+    }
+
+    @Test
+    void from_rejectsASealedTypeInAWildcardCollection() throws NoSuchMethodException {
+        var method = TestRepo.class.getMethod("findByBounded", List.class);
+        assertThatThrownBy(() -> ParameterInfo.from(method))
+                .isInstanceOf(FunctionCallException.class)
+                .hasMessageContaining("Unsupported parameter type");
+    }
+
+    @Test
+    void from_rejectsASealedTypeInANestedGenericCollection() throws NoSuchMethodException {
+        var method = TestRepo.class.getMethod("findByNestedOptionalSpecs", List.class);
+        assertThatThrownBy(() -> ParameterInfo.from(method))
+                .isInstanceOf(FunctionCallException.class)
+                .hasMessageContaining("Unsupported parameter type");
+    }
+
+    @Test
+    void from_acceptsASealedFieldNestedInACollectionElementRecord() throws NoSuchMethodException {
+        // The sealed type is a field of a (non-sealed) record element — handled by the mapper's
+        // field walk via the captured element type, so analysis must NOT reject it.
+        var method = TestRepo.class.getMethod("findByCriteria", List.class);
+        ParameterInfo p = ParameterInfo.from(method).getFirst();
+        assertThat(p.type()).isEqualTo(List.class);
+        assertThat(p.elementType()).isEqualTo(Criteria.class);
+    }
+
     // Test types
     record Order(Long id, String name) {}
     enum Status { ACTIVE, INACTIVE }
     sealed interface Spec permits ById {}
     record ById(Long id) implements Spec {}
+    record Criteria(Spec spec) {}
+
+    interface GenericRepo<T> {
+        void save(T entity);
+        void saveAll(T[] entities);
+    }
 
     interface TestRepo {
         void findById(Long id);
@@ -149,5 +209,9 @@ class ParameterInfoTest {
         void findByWildcard(Optional<?> any);
         void findByAny(List<Spec> specs);
         void findByOptionalSpecs(Optional<List<Spec>> specs);
+        void findByMap(Map<String, Spec> specs);
+        void findByBounded(List<? extends Spec> specs);
+        void findByNestedOptionalSpecs(List<Optional<Spec>> specs);
+        void findByCriteria(List<Criteria> criteria);
     }
 }
