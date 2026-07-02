@@ -70,6 +70,51 @@ class RepositoryParserTest {
     }
 
     @Test
+    void defaultStaticAndPrivateMethodsAreExcluded() throws IOException {
+        RepositorySpec spec = parseRepo("""
+                    java.util.Optional<String> findById(Long id);
+
+                    default String findByIdOrThrow(Long id) {
+                        return findById(id).orElseThrow();
+                    }
+
+                    static String tableName() {
+                        return "orders";
+                    }
+
+                    private String helper() {
+                        return "x";
+                    }
+                """);
+        assertThat(methodNames(spec))
+                .as("only the abstract method is backed by a generated function")
+                .containsExactly("findById");
+    }
+
+    @Test
+    void aDefaultMethodOnAnInheritedInterfaceIsAlsoExcluded() throws IOException {
+        writeSource("com.example.BaseRepository", """
+                package com.example;
+                public interface BaseRepository {
+                    String findByCode(String code);
+                    default String findByCodeOrThrow(String code) {
+                        String r = findByCode(code);
+                        if (r == null) throw new IllegalStateException();
+                        return r;
+                    }
+                }
+                """);
+        writeSource("com.example.OrderRepository", """
+                package com.example;
+                public interface OrderRepository extends BaseRepository {
+                    String findAll();
+                }
+                """);
+        RepositorySpec spec = new RepositoryParser().parse(sourceDir, "com.example.OrderRepository");
+        assertThat(methodNames(spec)).containsExactlyInAnyOrder("findAll", "findByCode");
+    }
+
+    @Test
     void javadocBlockTagsReachTheSpec() throws IOException {
         RepositorySpec spec = parseRepo("""
                     /**
