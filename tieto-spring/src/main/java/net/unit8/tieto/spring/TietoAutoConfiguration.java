@@ -42,11 +42,12 @@ import javax.sql.DataSource;
  * interfaces without an {@link EnableTietoRepositories} annotation.</p>
  */
 // Ordered after DataSource auto-configuration by name rather than by class, so tieto-spring
-// needs no dependency on the module that owns it — and the name differs across Spring Boot lines:
-// spring-boot-jdbc (Boot 4+) vs spring-boot-autoconfigure (Boot 3.x). An absent name is ignored.
+// needs no dependency on the module that owns it. The baseline is Spring Boot 4, where the class
+// lives in spring-boot-jdbc; the second name is the Boot 3.x home, kept only so the ordering still
+// applies if this happens to run on an older Boot — not a supported target. An absent name is ignored.
 @AutoConfiguration(afterName = {
-        "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
-        "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration"
+        "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",   // Boot 4 (baseline)
+        "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration"    // Boot 3.x (defensive)
 })
 @EnableConfigurationProperties(TietoProperties.class)
 public class TietoAutoConfiguration {
