@@ -83,7 +83,7 @@ Docker PostgreSQL: `localhost:5432`, db=`tieto_example`, user=`tieto`, password=
 - Return types: `RETURNS JSONB` for single/Optional, `RETURNS SETOF JSONB` for List, `RETURNS VOID` for void
 
 ### Testing
-- JUnit 5 + AssertJ
+- JUnit 6 (Jupiter) + AssertJ
 - Testcontainers for PostgreSQL integration tests
 - Test-local records/interfaces defined inside test classes
 
