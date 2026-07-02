@@ -48,6 +48,47 @@ class GeneratedSqlValidatorTest {
     }
 
     @Test
+    void rejectsAFunctionDeclaredSecurityDefiner() {
+        String sql = """
+                CREATE OR REPLACE FUNCTION order_repository_find_by_id_v1(p_id bigint)
+                RETURNS jsonb LANGUAGE sql SECURITY DEFINER AS $$ SELECT to_jsonb(p_id) $$
+                """;
+        assertThatThrownBy(() -> validator.validate(sql, "order_repository_find_by_id_v1", false))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("SECURITY DEFINER");
+    }
+
+    @Test
+    void rejectsSecurityDefinerRegardlessOfCasingAndSpacing() {
+        String sql = """
+                CREATE OR REPLACE FUNCTION order_repository_find_by_id_v1(p_id bigint)
+                RETURNS jsonb LANGUAGE sql
+                security    definer
+                AS $$ SELECT to_jsonb(p_id) $$
+                """;
+        assertThatThrownBy(() -> validator.validate(sql, "order_repository_find_by_id_v1", false))
+                .isInstanceOf(GeneratorException.class)
+                .hasMessageContaining("SECURITY DEFINER");
+    }
+
+    @Test
+    void allowsSecurityDefinerAppearingOnlyAsTextInsideTheBody() {
+        // A body may legitimately mention the words (a comment, a RAISE message); only the
+        // CREATE FUNCTION option clause outside the dollar-quoted body must be rejected.
+        String sql = """
+                CREATE OR REPLACE FUNCTION order_repository_find_by_id_v1(p_id bigint)
+                RETURNS jsonb LANGUAGE plpgsql AS $$
+                BEGIN
+                    -- this function is intentionally not SECURITY DEFINER
+                    RETURN to_jsonb(p_id);
+                END
+                $$
+                """;
+        assertThatCode(() -> validator.validate(sql, "order_repository_find_by_id_v1", false))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
     void rejectsProseWithNoFunctionDefinition() {
         String sql = "I'm sorry, I cannot generate that function.";
         assertThatThrownBy(() -> validator.validate(sql, "order_repository_find_by_id_v1", false))
