@@ -130,13 +130,40 @@ public final class TietoDataSource implements DataSource {
             return NonClosingConnection.wrap(bound);
         }
         log.debug("Acquired a fresh connection (closed on close())");
-        return target.getConnection();
+        return nonTransactional(target.getConnection());
     }
 
     @Override
     public Connection getConnection(String username, String password) throws SQLException {
         Connection bound = binding.current();
-        return bound != null ? NonClosingConnection.wrap(bound) : target.getConnection(username, password);
+        return bound != null
+                ? NonClosingConnection.wrap(bound)
+                : nonTransactional(target.getConnection(username, password));
+    }
+
+    /**
+     * Prepares a freshly borrowed, non-transactional Connection so a single call is durable
+     * regardless of the pool's autoCommit baseline. A connection already at
+     * {@code autoCommit=true} is returned as-is; one at {@code autoCommit=false} is wrapped so
+     * the call commits and the pool's baseline is restored on close (see
+     * {@link AutoCommitConnection}). Without this, a pool configured {@code autoCommit=false}
+     * would run each non-transactional call in an implicit transaction that is never committed,
+     * silently discarding the write.
+     */
+    private static Connection nonTransactional(Connection conn) throws SQLException {
+        boolean autoCommit;
+        try {
+            autoCommit = conn.getAutoCommit();
+        } catch (SQLException e) {
+            // Never leak the borrowed connection if we cannot inspect its state.
+            try {
+                conn.close();
+            } catch (SQLException closeError) {
+                e.addSuppressed(closeError);
+            }
+            throw e;
+        }
+        return autoCommit ? conn : AutoCommitConnection.wrap(conn);
     }
 
     @Override
