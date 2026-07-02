@@ -202,6 +202,25 @@ tieto:
 
 `createRepository()` (standalone) or scanning (Spring) creates a JDK Dynamic Proxy. Each method call translates to a PostgreSQL function invocation like `SELECT * FROM order_repository_find_by_id_v1(?)`. Repositories registered explicitly via `createRepository()` do not need `@TietoRepository`.
 
+> **`@Transactional` and JPA.** The auto-configuration wraps the application `DataSource` in a
+> `TransactionAwareDataSourceProxy` so tieto's per-call connection joins the surrounding
+> `@Transactional` boundary. That join only happens when the active transaction manager binds a
+> JDBC connection to *that* `DataSource` — which `DataSourceTransactionManager` does, but Spring
+> Boot's auto-configured `JpaTransactionManager` (a Spring Data JPA application) does not: it
+> leaves its `dataSource` unset. To make JPA and tieto share the transaction's connection, tieto
+> **links** a `JpaTransactionManager` that has no `dataSource` of its own to the single application
+> `DataSource` at startup (the standard Spring recipe for mixing JDBC access with JPA). This is on
+> by default and acts only when the DataSource is unambiguous; disable it with
+> `tieto.link-jpa-transaction-manager=false`, in which case set the `DataSource` on your
+> `JpaTransactionManager` yourself (or use a `DataSourceTransactionManager`). If tieto is still not
+> participating in the active transaction — a manager bound to a different `DataSource`, a JTA
+> setup — it logs a prominent startup `WARN` rather than silently losing writes.
+>
+> Outside any transaction, tieto commits each call itself only on the standalone `TietoDataSource`;
+> on the Spring path it uses the pool's connection as-is, so a call made outside a `@Transactional`
+> boundary relies on the pool being in autocommit mode (the Spring Boot / HikariCP default). If you
+> set the pool to `auto-commit=false`, run tieto calls inside a `@Transactional` boundary.
+
 ## Composable Specifications
 
 Query conditions can be modeled as a composable Specification — a domain model in its own right. Define a sealed hierarchy of `And`/`Or`/`Not` composites plus domain-named leaf predicates, then pass the tree as a Repository argument:

@@ -44,10 +44,17 @@ class TietoClientTransactionAwarenessGuardTest {
     void customWrapperExposingTheProxyViaJdbcUnwrap_isTransactionAware() {
         // A wrapper that is not a DelegatingDataSource but honours the JDBC unwrap contract
         // must not be falsely warned about.
+        TransactionAwareDataSourceProxy proxy = new TransactionAwareDataSourceProxy(new NoOpDataSource());
         DataSource wrapper = new NoOpDataSource() {
             @Override
             public boolean isWrapperFor(Class<?> iface) {
                 return iface == TransactionAwareDataSourceProxy.class;
+            }
+
+            @Override
+            @SuppressWarnings("unchecked")
+            public <U> U unwrap(Class<U> iface) {
+                return (U) proxy;
             }
         };
         assertThat(TietoClientTransactionAwarenessGuard.isTransactionAware(wrapper)).isTrue();

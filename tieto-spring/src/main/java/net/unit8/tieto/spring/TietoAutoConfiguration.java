@@ -7,11 +7,13 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.BeanDefinitionRegistryPostProcessor;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnSingleCandidate;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
 
@@ -73,5 +75,34 @@ public class TietoAutoConfiguration {
     @Bean
     static TietoClientTransactionAwarenessGuard tietoClientTransactionAwarenessGuard() {
         return new TietoClientTransactionAwarenessGuard();
+    }
+
+    /**
+     * Warns when tieto is structurally transaction-aware (wrapped in a
+     * {@link TransactionAwareDataSourceProxy}) but no configured transaction manager binds
+     * to the DataSource tieto uses, so {@code @Transactional} participation is lost at runtime
+     * — the typical Spring Data JPA setup. Complements the structural
+     * {@link TietoClientTransactionAwarenessGuard}, which only sees the proxy's presence.
+     */
+    @Bean
+    TietoTransactionParticipationGuard tietoTransactionParticipationGuard(
+            ObjectProvider<TietoClient> clients,
+            ObjectProvider<PlatformTransactionManager> transactionManagers) {
+        return new TietoTransactionParticipationGuard(clients, transactionManagers);
+    }
+
+    /**
+     * Links a {@code JpaTransactionManager} with no {@code dataSource} of its own to the single
+     * application DataSource, so tieto's calls actually join the JPA {@code @Transactional}
+     * boundary rather than escaping onto a fresh pool connection. Static, since a
+     * {@link org.springframework.beans.factory.config.BeanPostProcessor} must be registered as
+     * infrastructure. Disable with {@code tieto.link-jpa-transaction-manager=false}.
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "tieto", name = "link-jpa-transaction-manager",
+            havingValue = "true", matchIfMissing = true)
+    static TietoJpaTransactionManagerLinker tietoJpaTransactionManagerLinker(
+            ObjectProvider<DataSource> dataSources) {
+        return new TietoJpaTransactionManagerLinker(dataSources);
     }
 }
