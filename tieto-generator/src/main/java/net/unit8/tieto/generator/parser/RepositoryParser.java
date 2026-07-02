@@ -96,6 +96,19 @@ public class RepositoryParser {
                 .map(tp -> tp.getNameAsString())
                 .collect(Collectors.toSet());
         for (MethodDeclaration md : iface.getMethods()) {
+            // A default/static/private interface method carries an implementation that runs in
+            // Java (the proxy dispatches a default method via InvocationHandler.invokeDefault;
+            // static/private helpers are called directly), so it is never backed by a generated
+            // PostgreSQL function. Generating one would deploy a dead function nothing invokes —
+            // or, if the AI cannot produce coherent SQL for a helper, fail the whole run. Any
+            // interface method with a body is such a method, so skip it.
+            if (md.getBody().isPresent()) {
+                System.err.println("Warning: skipping method "
+                        + iface.getNameAsString() + "." + md.getNameAsString()
+                        + " because it has a body (default/static/private methods run in Java,"
+                        + " not as a generated PostgreSQL function)");
+                continue;
+            }
             // A method whose return or parameter type is one of the declaring
             // interface's type variables (E, ID, ...) cannot be resolved without
             // type-argument substitution, which we do not perform. Emitting it
