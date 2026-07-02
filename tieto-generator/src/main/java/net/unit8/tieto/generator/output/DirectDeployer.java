@@ -67,41 +67,51 @@ public final class DirectDeployer {
             rollback(conn);
             throw new GeneratorException(
                     "Failed to commit deploy: " + e.getMessage(), e);
-        } catch (RuntimeException e) {
+        } catch (Throwable t) {
+            // Any failure — a verification's RuntimeException, or an Error — must roll the
+            // deploy back. Without this, an Error would escape to the finally, where
+            // restoreAutoCommit's setAutoCommit(true) implicitly commits the created functions.
             rollback(conn);
-            throw e;
+            throw t;
         } finally {
             restoreAutoCommit(conn);
         }
     }
 
     /**
-     * Runs the verifications inside a savepoint that is always rolled back, so a verification
-     * that exercises a function body (a read smoke, an injection probe) cannot persist that
-     * body's side effects when the deploy commits — only the {@code CREATE}s, done before the
-     * savepoint, survive. A verification that throws still aborts the whole deploy (the caller
-     * rolls the transaction back); the savepoint rollback first undoes anything it did, without
-     * masking the original failure.
+     * Runs each verification inside its own savepoint that is always rolled back, so a
+     * verification that exercises a function body (a read smoke, an injection probe) cannot
+     * persist that body's side effects when the deploy commits — only the {@code CREATE}s, done
+     * before any savepoint, survive.
+     *
+     * <p>A per-verification savepoint is also required for correctness, not just isolation:
+     * {@code ReadSmokeVerifier} tolerates a non-body error (an {@code INTO STRICT} finding no
+     * row, an out-of-range probe value) by returning normally, but that failed statement has
+     * already put the transaction into the aborted state. Rolling back to this verification's
+     * savepoint clears that state before the next verification runs; a single shared savepoint
+     * would let the abort poison every later check with a {@code 25P02} error.</p>
+     *
+     * <p>A verification that throws still aborts the whole deploy (the caller rolls the
+     * transaction back); the savepoint rollback first undoes anything it did, without masking
+     * the original failure.</p>
      */
     private static void verify(Connection conn, List<DeployVerification> verifications) throws SQLException {
-        if (verifications.isEmpty()) {
-            return;
-        }
-        Savepoint savepoint = conn.setSavepoint("tieto_verify");
-        boolean verified = false;
-        try {
-            for (DeployVerification verification : verifications) {
+        for (DeployVerification verification : verifications) {
+            Savepoint savepoint = conn.setSavepoint("tieto_verify");
+            boolean verified = false;
+            try {
                 verification.verify(conn);
-            }
-            verified = true;
-        } finally {
-            if (verified) {
-                // Success: undo the probes' side effects. If this rollback itself fails, let it
-                // propagate so the deploy aborts rather than committing unverified side effects.
-                conn.rollback(savepoint);
-            } else {
-                // Already failing: do not let a savepoint-rollback error mask the verification's.
-                rollbackQuietly(conn, savepoint);
+                verified = true;
+            } finally {
+                if (verified) {
+                    // Success (or a tolerated error): undo any side effects and clear a possible
+                    // aborted state so the next verification runs clean. If this rollback itself
+                    // fails, let it propagate so the deploy aborts rather than committing.
+                    conn.rollback(savepoint);
+                } else {
+                    // Already failing: do not let a savepoint-rollback error mask the original.
+                    rollbackQuietly(conn, savepoint);
+                }
             }
         }
     }

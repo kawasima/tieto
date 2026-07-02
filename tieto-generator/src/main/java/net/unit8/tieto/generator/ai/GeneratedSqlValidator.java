@@ -126,6 +126,13 @@ public final class GeneratedSqlValidator {
      * literals, comments, and the dollar-quoted body blanked out, so it matches only the
      * {@code CREATE FUNCTION} option clause, never a {@code SECURITY DEFINER} appearing as text
      * inside the body.
+     *
+     * <p>Double-quoted identifiers in the header are <em>not</em> blanked, so a function that
+     * spells the literal text {@code "security definer"} as an identifier (e.g. a column of a
+     * {@code RETURNS TABLE}) is spuriously rejected. That is a false rejection, never a bypass —
+     * a real {@code SECURITY DEFINER} clause is always a bare keyword — and is vanishingly
+     * unlikely for a generated repository function, so it is accepted over the cost of a
+     * quoted-identifier-aware pass.</p>
      */
     private static void checkNotSecurityDefiner(String statement, String functionName) {
         if (SECURITY_DEFINER.matcher(stripLiteralsAndComments(statement)).find()) {
