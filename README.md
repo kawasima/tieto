@@ -202,6 +202,18 @@ tieto:
 
 `createRepository()` (standalone) or scanning (Spring) creates a JDK Dynamic Proxy. Each method call translates to a PostgreSQL function invocation like `SELECT * FROM order_repository_find_by_id_v1(?)`. Repositories registered explicitly via `createRepository()` do not need `@TietoRepository`.
 
+> **`@Transactional` requires a JDBC-backed transaction.** The auto-configuration wraps the
+> application `DataSource` in a `TransactionAwareDataSourceProxy` so tieto's per-call connection
+> joins the surrounding `@Transactional` boundary. That join only happens when the active
+> transaction manager binds a JDBC connection to *that* `DataSource` — which
+> `DataSourceTransactionManager` does. Spring Boot's auto-configured `JpaTransactionManager`
+> (i.e. a Spring Data JPA application) does **not**: it leaves its `dataSource` unset, so no JDBC
+> connection is bound and tieto silently acquires its own connection per call in its own
+> autocommit — its writes are not rolled back with the JPA transaction and its reads do not see
+> the transaction's uncommitted state. If you use JPA alongside tieto, set that same `DataSource`
+> on your `JpaTransactionManager` (or use a `DataSourceTransactionManager`) so the two share the
+> transaction's connection. tieto logs a startup `WARN` when it detects this gap.
+
 ## Composable Specifications
 
 Query conditions can be modeled as a composable Specification — a domain model in its own right. Define a sealed hierarchy of `And`/`Or`/`Not` composites plus domain-named leaf predicates, then pass the tree as a Repository argument:
