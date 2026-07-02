@@ -192,6 +192,41 @@ class TietoDataSourceTest {
     }
 
     @Test
+    void nonTransactionalConnectionOnAnAutoCommitTruePoolIsReturnedUnwrapped() throws Exception {
+        // The common case: the pool hands out an autoCommit=true connection. tieto must not
+        // touch its autoCommit and must physically close it on close() (non-transactional path).
+        Recording rec = new Recording(true);
+        Connection pooled = rec.proxy();
+        TietoDataSource dataSource = dataSourceReturning(pooled);
+
+        try (Connection conn = dataSource.getConnection()) {
+            assertThat(conn).as("returned unwrapped").isSameAs(pooled);
+        }
+
+        assertThat(rec.setAutoCommitValues).as("autoCommit left untouched").isEmpty();
+        assertThat(rec.closed).as("physically closed on the non-transactional path").isTrue();
+    }
+
+    @Test
+    void nonTransactionalConnectionOnAnAutoCommitFalsePoolCommitsAndRestoresOnClose() throws Exception {
+        // A pool whose baseline is autoCommit=false: the borrowed connection is switched to
+        // autoCommit=true for the call so the write is durable, then restored to false and
+        // physically closed on close() so the pool's baseline survives.
+        Recording rec = new Recording(false);
+        TietoDataSource dataSource = dataSourceReturning(rec.proxy());
+
+        Connection conn = dataSource.getConnection();
+        assertThat(rec.autoCommit).as("switched to autoCommit=true for the call").isTrue();
+
+        conn.close();
+
+        assertThat(rec.setAutoCommitValues).as("true for the call, then restored to false")
+                .containsExactly(true, false);
+        assertThat(rec.autoCommitAtClose).as("pool baseline restored before close").isFalse();
+        assertThat(rec.closed).as("physically closed").isTrue();
+    }
+
+    @Test
     void aNestedTransactionJoinsWithoutOpeningOrCommittingASecondTime() throws Exception {
         Recording rec = new Recording(true);
         TietoDataSource dataSource = dataSourceReturning(rec.proxy());
