@@ -3,6 +3,7 @@ package net.unit8.tieto.spring;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.orm.jpa.JpaTransactionManager;
 
 import javax.sql.DataSource;
@@ -46,6 +47,28 @@ class TietoJpaTransactionManagerLinkerTest {
                 .postProcessBeforeInitialization(jpa, "transactionManager");
 
         assertThat(jpa.getDataSource()).as("does not guess among several DataSources").isNull();
+    }
+
+    @Test
+    void doesNotLinkWhenSeveralDataSourcesExistEvenWithAPrimary() {
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        RootBeanDefinition primary = new RootBeanDefinition(NoOpDataSource.class);
+        primary.setPrimary(true);
+        beanFactory.registerBeanDefinition("primaryDs", primary);
+        beanFactory.registerBeanDefinition("otherDs", new RootBeanDefinition(NoOpDataSource.class));
+        ObjectProvider<DataSource> provider = beanFactory.getBeanProvider(DataSource.class);
+
+        // getIfUnique() would return the @Primary — the too-eager behaviour we must avoid —
+        // but with several DataSources the EMF's DataSource is unknown, so the linker must not act.
+        assertThat(provider.getIfUnique())
+                .as("precondition: @Primary makes getIfUnique() non-null").isNotNull();
+
+        JpaTransactionManager jpa = new JpaTransactionManager();
+        new TietoJpaTransactionManagerLinker(provider).postProcessBeforeInitialization(jpa, "transactionManager");
+
+        assertThat(jpa.getDataSource())
+                .as("does not guess even when a @Primary DataSource exists among several")
+                .isNull();
     }
 
     @Test

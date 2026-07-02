@@ -215,6 +215,11 @@ tieto:
 > `JpaTransactionManager` yourself (or use a `DataSourceTransactionManager`). If tieto is still not
 > participating in the active transaction — a manager bound to a different `DataSource`, a JTA
 > setup — it logs a prominent startup `WARN` rather than silently losing writes.
+>
+> Outside any transaction, tieto commits each call itself only on the standalone `TietoDataSource`;
+> on the Spring path it uses the pool's connection as-is, so a call made outside a `@Transactional`
+> boundary relies on the pool being in autocommit mode (the Spring Boot / HikariCP default). If you
+> set the pool to `auto-commit=false`, run tieto calls inside a `@Transactional` boundary.
 
 ## Composable Specifications
 

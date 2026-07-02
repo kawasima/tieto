@@ -83,21 +83,15 @@ final class TietoTransactionParticipationGuard implements SmartInitializingSingl
 
     /**
      * The DataSource a {@link TransactionAwareDataSourceProxy} delegates to, or {@code null} if the
-     * given DataSource has no such proxy in its delegation chain.
+     * given DataSource has no such proxy in its chain. Uses the same detection as
+     * {@link TietoClientTransactionAwarenessGuard} (including its {@code isWrapperFor} fallback for
+     * non-{@link DelegatingDataSource} wrappers), so the two guards never disagree about whether
+     * tieto is transaction-aware.
      */
     private static DataSource transactionAwareTarget(DataSource dataSource) {
-        DataSource current = dataSource;
-        while (current != null) {
-            if (current instanceof TransactionAwareDataSourceProxy proxy) {
-                return rootDataSource(proxy.getTargetDataSource());
-            }
-            if (current instanceof DelegatingDataSource delegating) {
-                current = delegating.getTargetDataSource();
-            } else {
-                return null;
-            }
-        }
-        return null;
+        TransactionAwareDataSourceProxy proxy =
+                TietoClientTransactionAwarenessGuard.transactionAwareProxy(dataSource);
+        return proxy == null ? null : rootDataSource(proxy.getTargetDataSource());
     }
 
     /** Unwraps {@link DelegatingDataSource} layers down to the underlying DataSource. */

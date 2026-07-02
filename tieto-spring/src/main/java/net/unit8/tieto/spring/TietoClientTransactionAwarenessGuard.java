@@ -43,16 +43,25 @@ final class TietoClientTransactionAwarenessGuard implements BeanPostProcessor {
     /**
      * Whether connections obtained from {@code dataSource} are bound to the current Spring
      * transaction — i.e. a {@link TransactionAwareDataSourceProxy} sits anywhere in the
-     * delegation chain that {@code getConnection()} follows. The {@link DelegatingDataSource}
-     * walk covers the standard Spring wrapping; as a fallback, a custom wrapper that is not a
-     * {@code DelegatingDataSource} but exposes the proxy through the JDBC {@code unwrap}
-     * contract is honoured too, so it is not falsely warned about.
+     * delegation chain that {@code getConnection()} follows.
      */
     static boolean isTransactionAware(DataSource dataSource) {
+        return transactionAwareProxy(dataSource) != null;
+    }
+
+    /**
+     * The {@link TransactionAwareDataSourceProxy} in {@code dataSource}'s delegation chain, or
+     * {@code null} if there is none. The {@link DelegatingDataSource} walk covers the standard
+     * Spring wrapping; as a fallback, a custom wrapper that is not a {@code DelegatingDataSource}
+     * but exposes the proxy through the JDBC {@code unwrap} contract is honoured too, so it is
+     * neither falsely warned about nor mistaken for non-participating. Shared with
+     * {@link TietoTransactionParticipationGuard}, which needs the proxy's target DataSource.
+     */
+    static TransactionAwareDataSourceProxy transactionAwareProxy(DataSource dataSource) {
         DataSource current = dataSource;
         while (current != null) {
-            if (current instanceof TransactionAwareDataSourceProxy) {
-                return true;
+            if (current instanceof TransactionAwareDataSourceProxy proxy) {
+                return proxy;
             }
             if (current instanceof DelegatingDataSource delegating) {
                 current = delegating.getTargetDataSource();
@@ -61,9 +70,12 @@ final class TietoClientTransactionAwarenessGuard implements BeanPostProcessor {
             }
         }
         try {
-            return dataSource.isWrapperFor(TransactionAwareDataSourceProxy.class);
+            if (dataSource.isWrapperFor(TransactionAwareDataSourceProxy.class)) {
+                return dataSource.unwrap(TransactionAwareDataSourceProxy.class);
+            }
         } catch (SQLException e) {
-            return false;
+            // Treated as not transaction-aware.
         }
+        return null;
     }
 }

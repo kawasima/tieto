@@ -4,9 +4,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
 import java.lang.reflect.Method;
+import java.util.List;
 
 /**
  * Makes {@code @Transactional} participation actually work under Spring Data JPA by linking a
@@ -42,7 +44,9 @@ final class TietoJpaTransactionManagerLinker implements BeanPostProcessor {
 
     @Override
     public Object postProcessBeforeInitialization(Object bean, String beanName) {
-        if (!isJpaTransactionManager(bean.getClass())) {
+        // Cheap short-circuit for the ~all beans that are not transaction managers, before the
+        // superclass-name walk. Every JpaTransactionManager is a PlatformTransactionManager.
+        if (!(bean instanceof PlatformTransactionManager) || !isJpaTransactionManager(bean.getClass())) {
             return bean;
         }
         try {
@@ -50,10 +54,15 @@ final class TietoJpaTransactionManagerLinker implements BeanPostProcessor {
             if (getDataSource.invoke(bean) != null) {
                 return bean;   // an explicitly configured dataSource is respected
             }
-            DataSource dataSource = dataSources.getIfUnique();
-            if (dataSource == null) {
-                return bean;   // zero or several DataSources: do not guess which one JPA uses
+            // Only when exactly one DataSource bean exists. getIfUnique() would return the
+            // @Primary among several, but then we cannot know which DataSource the EntityManager
+            // actually uses, so we must not guess — leave the manager unlinked (the participation
+            // guard then warns).
+            List<DataSource> candidates = dataSources.stream().limit(2).toList();
+            if (candidates.size() != 1) {
+                return bean;
             }
+            DataSource dataSource = candidates.get(0);
             bean.getClass().getMethod("setDataSource", DataSource.class).invoke(bean, dataSource);
             log.info("Linked JpaTransactionManager '{}' to the application DataSource so tieto "
                     + "(and any JdbcTemplate) share the JPA transaction's connection. Disable with "
