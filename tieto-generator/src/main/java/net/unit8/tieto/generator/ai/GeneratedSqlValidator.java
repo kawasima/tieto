@@ -77,6 +77,7 @@ public final class GeneratedSqlValidator {
             if (name.equals(expectedFunctionName)) {
                 definedExpected = true;
             }
+            checkNotSecurityDefiner(statement, name);
             if (allowSpecHelper) {
                 String body = functionBody(statement);
                 if (body == null) {
@@ -112,6 +113,28 @@ public final class GeneratedSqlValidator {
             return quoted;
         }
         return head.group(2).toLowerCase(Locale.ROOT);
+    }
+
+    private static final Pattern SECURITY_DEFINER = Pattern.compile("(?is)\\bSECURITY\\s+DEFINER\\b");
+
+    /**
+     * Rejects a function declared {@code SECURITY DEFINER}. tieto's documented safety posture is
+     * that generated functions run with the privileges of the role that <em>calls</em> them
+     * (the default, {@code SECURITY INVOKER}); a {@code SECURITY DEFINER} function would instead
+     * run its body with the deploy role's privileges, turning a hallucinated or injected
+     * destructive body into a privilege escalation. The check runs on a copy with string
+     * literals, comments, and the dollar-quoted body blanked out, so it matches only the
+     * {@code CREATE FUNCTION} option clause, never a {@code SECURITY DEFINER} appearing as text
+     * inside the body.
+     */
+    private static void checkNotSecurityDefiner(String statement, String functionName) {
+        if (SECURITY_DEFINER.matcher(stripLiteralsAndComments(statement)).find()) {
+            throw new GeneratorException(
+                    functionName + " is declared SECURITY DEFINER, which would run its body with the "
+                            + "deploy role's privileges instead of the caller's. tieto requires functions "
+                            + "to run as the invoking role (the default, SECURITY INVOKER); remove the "
+                            + "SECURITY DEFINER clause.");
+        }
     }
 
     private static final Pattern EXECUTE_KW = Pattern.compile("(?i)\\bEXECUTE\\b");

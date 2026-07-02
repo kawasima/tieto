@@ -5,6 +5,7 @@ import net.unit8.tieto.generator.parser.GeneratorException;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.Savepoint;
 import java.sql.Statement;
 import java.util.List;
 
@@ -16,6 +17,10 @@ public final class DirectDeployer {
     /**
      * A check to run inside the deploy transaction after the functions are created
      * but before commit (e.g. {@link SpecInjectionProbe}). Throwing rolls back the deploy.
+     *
+     * <p>A verification runs inside a savepoint that is always rolled back, so a check that
+     * exercises a function body (a read smoke, an injection probe) never persists that body's
+     * side effects when the deploy commits — only the {@code CREATE}s are committed.</p>
      */
     @FunctionalInterface
     public interface DeployVerification {
@@ -56,9 +61,7 @@ public final class DirectDeployer {
         }
         try {
             executeAll(conn, functions);
-            for (DeployVerification verification : verifications) {
-                verification.verify(conn);
-            }
+            verify(conn, verifications);
             conn.commit();
         } catch (SQLException e) {
             rollback(conn);
@@ -69,6 +72,46 @@ public final class DirectDeployer {
             throw e;
         } finally {
             restoreAutoCommit(conn);
+        }
+    }
+
+    /**
+     * Runs the verifications inside a savepoint that is always rolled back, so a verification
+     * that exercises a function body (a read smoke, an injection probe) cannot persist that
+     * body's side effects when the deploy commits — only the {@code CREATE}s, done before the
+     * savepoint, survive. A verification that throws still aborts the whole deploy (the caller
+     * rolls the transaction back); the savepoint rollback first undoes anything it did, without
+     * masking the original failure.
+     */
+    private static void verify(Connection conn, List<DeployVerification> verifications) throws SQLException {
+        if (verifications.isEmpty()) {
+            return;
+        }
+        Savepoint savepoint = conn.setSavepoint("tieto_verify");
+        boolean verified = false;
+        try {
+            for (DeployVerification verification : verifications) {
+                verification.verify(conn);
+            }
+            verified = true;
+        } finally {
+            if (verified) {
+                // Success: undo the probes' side effects. If this rollback itself fails, let it
+                // propagate so the deploy aborts rather than committing unverified side effects.
+                conn.rollback(savepoint);
+            } else {
+                // Already failing: do not let a savepoint-rollback error mask the verification's.
+                rollbackQuietly(conn, savepoint);
+            }
+        }
+    }
+
+    private static void rollbackQuietly(Connection conn, Savepoint savepoint) {
+        try {
+            conn.rollback(savepoint);
+        } catch (SQLException e) {
+            // The caller rolls the whole transaction back; a failed savepoint rollback is not
+            // separately actionable.
         }
     }
 

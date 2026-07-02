@@ -12,6 +12,7 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -84,6 +85,46 @@ class DirectDeployerIntegrationTest {
         assertThat(functionExists("verify_v1"))
                 .as("a function whose verification failed must be rolled back")
                 .isFalse();
+    }
+
+    @Test
+    void verificationSideEffectsAreRolledBackWhileTheFunctionsAreCommitted() throws SQLException {
+        try (Connection setup = newConnection();
+                Statement stmt = setup.createStatement()) {
+            stmt.execute("CREATE TABLE probe_marker (id int)");
+        }
+
+        try (Connection conn = newConnection()) {
+            // A verification that exercises a body with a side effect (here, a direct write to
+            // stand in for a read-shaped function whose body mutates data) must not persist.
+            new DirectDeployer().deploy(
+                    conn,
+                    List.of(fn("side_effect_v1",
+                            "CREATE OR REPLACE FUNCTION side_effect_v1() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$")),
+                    List.of(c -> {
+                        try (Statement stmt = c.createStatement()) {
+                            stmt.execute("INSERT INTO probe_marker VALUES (1)");
+                        } catch (SQLException e) {
+                            throw new GeneratorException("probe write failed", e);
+                        }
+                    }));
+        }
+
+        assertThat(functionExists("side_effect_v1"))
+                .as("the CREATE is committed")
+                .isTrue();
+        assertThat(rowCount("probe_marker"))
+                .as("the verification's side effect is rolled back, not committed")
+                .isZero();
+    }
+
+    private static int rowCount(String table) throws SQLException {
+        try (Connection conn = newConnection();
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery("SELECT count(*) FROM " + table)) {
+            rs.next();
+            return rs.getInt(1);
+        }
     }
 
     private static Connection newConnection() throws SQLException {
