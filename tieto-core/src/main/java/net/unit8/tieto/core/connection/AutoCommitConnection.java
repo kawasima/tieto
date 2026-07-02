@@ -50,7 +50,10 @@ final class AutoCommitConnection {
                         try {
                             target.setAutoCommit(false);   // restore the pool's baseline
                         } catch (SQLException | RuntimeException ignored) {
-                            // Best-effort restore; the physical close below still runs.
+                            // Best-effort restore; the physical close below still runs. If this
+                            // rare failure leaves the connection at autoCommit=true, a pool that
+                            // resets connection state on return (e.g. HikariCP) corrects it; the
+                            // window matches inTransaction's own best-effort autoCommit restore.
                         }
                         target.close();
                         return null;
