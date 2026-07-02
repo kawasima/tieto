@@ -202,17 +202,19 @@ tieto:
 
 `createRepository()` (standalone) or scanning (Spring) creates a JDK Dynamic Proxy. Each method call translates to a PostgreSQL function invocation like `SELECT * FROM order_repository_find_by_id_v1(?)`. Repositories registered explicitly via `createRepository()` do not need `@TietoRepository`.
 
-> **`@Transactional` requires a JDBC-backed transaction.** The auto-configuration wraps the
-> application `DataSource` in a `TransactionAwareDataSourceProxy` so tieto's per-call connection
-> joins the surrounding `@Transactional` boundary. That join only happens when the active
-> transaction manager binds a JDBC connection to *that* `DataSource` — which
-> `DataSourceTransactionManager` does. Spring Boot's auto-configured `JpaTransactionManager`
-> (i.e. a Spring Data JPA application) does **not**: it leaves its `dataSource` unset, so no JDBC
-> connection is bound and tieto silently acquires its own connection per call in its own
-> autocommit — its writes are not rolled back with the JPA transaction and its reads do not see
-> the transaction's uncommitted state. If you use JPA alongside tieto, set that same `DataSource`
-> on your `JpaTransactionManager` (or use a `DataSourceTransactionManager`) so the two share the
-> transaction's connection. tieto logs a startup `WARN` when it detects this gap.
+> **`@Transactional` and JPA.** The auto-configuration wraps the application `DataSource` in a
+> `TransactionAwareDataSourceProxy` so tieto's per-call connection joins the surrounding
+> `@Transactional` boundary. That join only happens when the active transaction manager binds a
+> JDBC connection to *that* `DataSource` — which `DataSourceTransactionManager` does, but Spring
+> Boot's auto-configured `JpaTransactionManager` (a Spring Data JPA application) does not: it
+> leaves its `dataSource` unset. To make JPA and tieto share the transaction's connection, tieto
+> **links** a `JpaTransactionManager` that has no `dataSource` of its own to the single application
+> `DataSource` at startup (the standard Spring recipe for mixing JDBC access with JPA). This is on
+> by default and acts only when the DataSource is unambiguous; disable it with
+> `tieto.link-jpa-transaction-manager=false`, in which case set the `DataSource` on your
+> `JpaTransactionManager` yourself (or use a `DataSourceTransactionManager`). If tieto is still not
+> participating in the active transaction — a manager bound to a different `DataSource`, a JTA
+> setup — it logs a prominent startup `WARN` rather than silently losing writes.
 
 ## Composable Specifications
 
