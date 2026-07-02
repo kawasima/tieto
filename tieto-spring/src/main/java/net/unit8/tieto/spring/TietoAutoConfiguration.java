@@ -9,7 +9,6 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnSingleCandidate;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy;
@@ -42,7 +41,13 @@ import javax.sql.DataSource;
  * {@code tieto.base-packages} registers {@link TietoRepository}-annotated
  * interfaces without an {@link EnableTietoRepositories} annotation.</p>
  */
-@AutoConfiguration(after = DataSourceAutoConfiguration.class)
+// Ordered after DataSource auto-configuration by name rather than by class, so tieto-spring
+// needs no dependency on the module that owns it — and the name differs across Spring Boot lines:
+// spring-boot-jdbc (Boot 4+) vs spring-boot-autoconfigure (Boot 3.x). An absent name is ignored.
+@AutoConfiguration(afterName = {
+        "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
+        "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration"
+})
 @EnableConfigurationProperties(TietoProperties.class)
 public class TietoAutoConfiguration {
 

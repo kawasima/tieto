@@ -36,9 +36,12 @@
         <postgresql.version>42.7.10</postgresql.version>
         <picocli.version>4.7.7</picocli.version>
         <javaparser.version>3.28.0</javaparser.version>
-        <spring-boot.version>3.3.0</spring-boot.version>
-        <junit.version>5.14.3</junit.version>
-        <testcontainers.version>1.21.4</testcontainers.version>
+        <spring-boot.version>4.0.7</spring-boot.version>
+        <!-- Spring Framework 7 (Boot 4) requires JUnit Jupiter 6, which in turn needs
+             Testcontainers 2.x and Surefire/Failsafe 3.5.x (junit-platform 6). Test scope
+             only — no runtime or consumer impact. -->
+        <junit.version>6.0.3</junit.version>
+        <testcontainers.version>2.0.5</testcontainers.version>
     </properties>
 
     <dependencyManagement>
@@ -138,7 +141,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.3.0</version>
+                <version>3.5.6</version>
                 <configuration>
                     <excludes>
                         <exclude>**/*IntegrationTest.java</exclude>
@@ -148,7 +151,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
-                <version>3.3.0</version>
+                <version>3.5.6</version>
                 <configuration>
                     <includes>
                         <include>**/*IntegrationTest.java</include>
