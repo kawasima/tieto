@@ -143,6 +143,15 @@ public class GenerateCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
+        // Reject an unknown --output-mode up front. Every downstream branch compares against
+        // "deploy" and otherwise falls through to file output, so a typo like "Deploy" would
+        // silently skip the --yes gate and write a file instead of deploying — fail loudly.
+        if (!"deploy".equals(outputMode) && !"file".equals(outputMode)) {
+            System.err.println("Unknown --output-mode '" + outputMode
+                    + "'. Use 'deploy' (default) or 'file'.");
+            return 2;
+        }
+
         // Deploy mode writes AI-generated SQL straight into the live database, so it
         // requires explicit confirmation. The safe posture is to write the SQL to a
         // file, review it, and apply it deliberately.
