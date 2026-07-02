@@ -88,8 +88,15 @@ public final class FunctionInvoker {
             return result;
         } catch (SQLException e) {
             long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
-            log.warn("Function {} failed after {} ms (SQLSTATE={}): {}",
-                    functionName, elapsedMs, e.getSQLState(), e.getMessage());
+            // WARN carries the elapsed time and SQLSTATE only. The driver's message can embed
+            // row/key values (e.g. a unique-violation detail), so it is kept out of the WARN —
+            // consistent with never logging argument values — and surfaced at DEBUG for
+            // diagnosis. The full SQLException is still wrapped in the thrown exception.
+            log.warn("Function {} failed after {} ms (SQLSTATE={})",
+                    functionName, elapsedMs, e.getSQLState());
+            if (log.isDebugEnabled()) {
+                log.debug("Function {} failure detail: {}", functionName, e.getMessage());
+            }
             throw new FunctionCallException(
                     "Failed to call function: " + functionName, e);
         }
