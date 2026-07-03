@@ -154,6 +154,25 @@ mvn package -pl tieto-generator -am -DskipTests
 cp tieto-generator/target/tieto /usr/local/bin/
 ```
 
+#### Applying the committed SQL (migration tools)
+
+The generated SQL is **idempotent** — every function is `CREATE OR REPLACE FUNCTION`, and bumping `@FunctionVersion` adds a new `…_vN` name while the old one stays — so the committed file behaves like a database migration you can re-apply safely. Keep the table DDL in your normal *versioned* migrations (they run first) and treat the repository functions as an artifact that is re-applied whenever it changes.
+
+**Flyway** — a *repeatable* migration is the natural fit. Point the generator at your migration directory and name the file `R__…`:
+
+```bash
+tieto generate ... --output-dir src/main/resources/db/migration
+# then commit it as R__order_repository_functions.sql
+```
+
+Flyway re-runs an `R__` migration whenever its checksum changes and always *after* the versioned `V__` migrations that create the tables — so the functions land after the schema they reference, and a regeneration re-applies automatically. Coexisting `…_v1`, `…_v2` versions live side by side in the one file. (Because tieto's merge-write emits functions in a stable, name-sorted order, an unchanged regeneration leaves the checksum untouched.)
+
+**Liquibase** — reference the file from a changeSet marked `runOnChange:"true"` (re-applied when the file changes), or `includeAll` the generated SQL directory.
+
+**Plain psql** — `psql -f order_repository.sql` is safe to re-run; it's what docker-compose does when it loads the file from `/docker-entrypoint-initdb.d`.
+
+**Removing old versions.** A repeatable migration has no "down", so it can never drop a superseded `…_vN` — those accumulate. Remove them deliberately with a versioned migration (`V…__drop_order_repository_v1.sql`) once no running code calls the old version. (A `tieto functions prune` command to inventory and drop superseded versions is planned.)
+
 ### 4. Use the Repository from your application
 
 **Standalone (plain Java):**
