@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -97,6 +98,28 @@ class OrderServiceIntegrationTest {
     void updateStatusIsReflectedOnRead() {
         orderService.updateStatus(2L, "SHIPPED");
         assertThat(orderService.findById(2L).orElseThrow().status()).isEqualTo(OrderStatus.SHIPPED);
+    }
+
+    @Test
+    void findByCustomerIdReturnsAllOrdersNewestFirst() {
+        // CUST-001 has two seeded orders; they must come back created_at DESC (id 2 before id 1).
+        assertThat(orderService.findByCustomerId("CUST-001")).extracting(Order::id).containsExactly(2L, 1L);
+    }
+
+    @Test
+    void findByIdReturnsEmptyForAMissingOrder() {
+        assertThat(orderService.findById(999L)).isEmpty();
+    }
+
+    @Test
+    void saveWithNullLinesStoresAnOrderWithNoLines() {
+        // A null line list serializes as "lines":null; save must treat it as no lines, not error.
+        orderRepository.save(new Order(null, "CUST-NOLINES", null, OrderStatus.PENDING,
+                LocalDateTime.of(2024, 7, 3, 9, 0)));
+
+        List<Order> saved = orderService.findByCustomerId("CUST-NOLINES");
+        assertThat(saved).hasSize(1);
+        assertThat(saved.getFirst().lines()).isEmpty();
     }
 
     @Test
