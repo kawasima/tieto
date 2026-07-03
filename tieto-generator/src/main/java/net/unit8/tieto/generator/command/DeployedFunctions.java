@@ -6,6 +6,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Pattern;
 
 /**
@@ -37,6 +39,40 @@ final class DeployedFunctions {
             throw new GeneratorException(
                     "Failed to check whether function " + functionName + " already exists: "
                             + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * A function deployed in the database: its name, its identity argument list (for DROP), and its
+     * {@code pg_proc} comment ({@code null} if none) — tieto stamps an ownership marker there.
+     */
+    record DeployedFunction(String name, String identityArgs, String comment) {}
+
+    /**
+     * Lists the functions in the connection's current schema whose name starts with {@code prefix}
+     * (matched literally with {@code starts_with}, so the prefix's own {@code _} is not treated as a
+     * LIKE wildcard), with each function's identity argument list (so an overloaded function can be
+     * dropped unambiguously) and its comment (the tieto ownership marker, if any). Ordered by name.
+     */
+    static List<DeployedFunction> listByPrefix(Connection conn, String prefix) {
+        String sql = "SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args,"
+                + " obj_description(p.oid, 'pg_proc') AS comment"
+                + " FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+                + " WHERE n.nspname = current_schema() AND starts_with(p.proname, ?)"
+                + " ORDER BY p.proname, args";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, prefix);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<DeployedFunction> functions = new ArrayList<>();
+                while (rs.next()) {
+                    functions.add(new DeployedFunction(
+                            rs.getString("proname"), rs.getString("args"), rs.getString("comment")));
+                }
+                return functions;
+            }
+        } catch (SQLException e) {
+            throw new GeneratorException(
+                    "Failed to list deployed functions with prefix " + prefix + ": " + e.getMessage(), e);
         }
     }
 

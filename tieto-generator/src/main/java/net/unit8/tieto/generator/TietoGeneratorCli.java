@@ -1,5 +1,6 @@
 package net.unit8.tieto.generator;
 
+import net.unit8.tieto.generator.command.FunctionsCommand;
 import net.unit8.tieto.generator.command.GenerateCommand;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
@@ -12,7 +13,8 @@ import picocli.CommandLine.Command;
         version = "0.1.0",
         description = "Generate PostgreSQL Functions from Repository interfaces",
         subcommands = {
-                GenerateCommand.class
+                GenerateCommand.class,
+                FunctionsCommand.class
         })
 public class TietoGeneratorCli implements Runnable {
 
