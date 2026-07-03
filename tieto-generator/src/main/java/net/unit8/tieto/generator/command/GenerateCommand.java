@@ -115,6 +115,15 @@ public class GenerateCommand implements Callable<Integer> {
             description = "Force regeneration even if the function version already exists")
     private boolean force;
 
+    @Option(names = "--verify", negatable = true, defaultValue = "true",
+            description = "In file mode, verify the generated SQL against the database before writing"
+                    + " it: CREATE each function and run the signature/read-smoke/injection checks"
+                    + " inside a transaction that is always rolled back, and refuse to write if any"
+                    + " fails (so committed SQL is at least structurally valid and runnable). On by"
+                    + " default; --no-verify skips it. Needs a dev/CI database with CREATE FUNCTION"
+                    + " rights; the database is left unchanged. Deploy mode always verifies.")
+    private boolean verify;
+
     @Option(names = "--emit-test",
             description = "Also emit a domain-level round-trip JUnit test for the repository"
                     + " (runs it through the tieto-core proxy against Testcontainers).")
@@ -251,8 +260,24 @@ public class GenerateCommand implements Callable<Integer> {
             }
             System.out.println("Deployed " + functions.size() + " functions to database");
         } else {
-            // Non-force runs skip functions already in the file, so append the new ones
-            // to preserve them; --force regenerates everything, so rewrite the whole file.
+            // File mode. Before writing SQL that is meant to be reviewed and committed, verify it
+            // against the database (unless --no-verify): apply the functions and run the same
+            // structural checks as a deploy inside a transaction that is always rolled back, so the
+            // DB is unchanged. Refuse to write if verification fails — do not commit unverified SQL.
+            if (verify) {
+                List<DirectDeployer.DeployVerification> verifications =
+                        buildVerifications(repoSpec, generatedMethods, deployedSpecMethods);
+                try (Connection conn = DriverManager.getConnection(dbUrl, dbUser, dbPassword)) {
+                    new DirectDeployer().verifyOnly(conn, functions, verifications);
+                } catch (GeneratorException e) {
+                    System.err.println("Refusing to write SQL: verification failed — " + e.getMessage()
+                            + "\nFix the interface/schema and regenerate, or re-run with --no-verify"
+                            + " to skip verification (not recommended for SQL you intend to commit).");
+                    return 2;
+                }
+                System.out.println("Verified " + functions.size()
+                        + " function(s) against the database (rolled back; no changes made)");
+            }
             new SqlFileWriter().write(outputDir, repoSpec.simpleName(), functions, force, ai.provenance());
             System.out.println("Wrote SQL files to " + outputDir);
         }
