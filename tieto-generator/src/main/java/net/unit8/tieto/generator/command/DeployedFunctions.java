@@ -6,6 +6,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Pattern;
 
 /**
@@ -38,6 +40,39 @@ final class DeployedFunctions {
                     "Failed to check whether function " + functionName + " already exists: "
                             + e.getMessage(), e);
         }
+    }
+
+    /** A function deployed in the database: its name and its identity argument list (for DROP). */
+    record DeployedFunction(String name, String identityArgs) {}
+
+    /**
+     * Lists the functions in the connection's current schema whose name starts with {@code prefix}
+     * (a literal prefix; its LIKE wildcards are escaped), with each function's identity argument
+     * list so an overloaded function can be dropped unambiguously. Ordered by name.
+     */
+    static List<DeployedFunction> listByPrefix(Connection conn, String prefix) {
+        String sql = "SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args"
+                + " FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+                + " WHERE n.nspname = current_schema() AND p.proname LIKE ? ESCAPE '\\'"
+                + " ORDER BY p.proname, args";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, escapeLike(prefix) + "%");
+            try (ResultSet rs = ps.executeQuery()) {
+                List<DeployedFunction> functions = new ArrayList<>();
+                while (rs.next()) {
+                    functions.add(new DeployedFunction(rs.getString("proname"), rs.getString("args")));
+                }
+                return functions;
+            }
+        } catch (SQLException e) {
+            throw new GeneratorException(
+                    "Failed to list deployed functions with prefix " + prefix + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** Escapes the LIKE metacharacters {@code \ _ %} so {@code prefix} is matched literally. */
+    private static String escapeLike(String prefix) {
+        return prefix.replace("\\", "\\\\").replace("_", "\\_").replace("%", "\\%");
     }
 
     /**

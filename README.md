@@ -171,7 +171,7 @@ Flyway re-runs an `R__` migration whenever its checksum changes and always *afte
 
 **Plain psql** — `psql -f order_repository.sql` is safe to re-run; it's what docker-compose does when it loads the file from `/docker-entrypoint-initdb.d`.
 
-**Removing old versions.** A repeatable migration has no "down", so it can never drop a superseded `…_vN` — those accumulate. Remove them deliberately with a versioned migration (`V…__drop_order_repository_v1.sql`) once no running code calls the old version. (A `tieto functions prune` command to inventory and drop superseded versions is planned.)
+**Removing old versions.** A repeatable migration has no "down", so it can never drop a superseded `…_vN` — those accumulate. To see what's deployed, `tieto functions list --source-dir … --repository … --db-url …` classifies a repository's deployed functions as **current** (match a declared method at its `@FunctionVersion`), **superseded** (an old version of a still-declared method), or **orphaned** (no matching method — removed/renamed). Drop a superseded version deliberately with a versioned migration (`V…__drop_order_repository_find_by_id_v1.sql`) once no running code calls it. (A `tieto functions prune` to drop them for you is coming.)
 
 ### 4. Use the Repository from your application
 

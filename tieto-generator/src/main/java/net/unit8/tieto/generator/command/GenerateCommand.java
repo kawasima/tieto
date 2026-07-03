@@ -542,14 +542,8 @@ public class GenerateCommand implements Callable<Integer> {
                 .orElseThrow();
     }
 
-    /**
-     * Whether the method takes a composable Specification (a sealed type), in
-     * which case the generator also emits a {@code _spec_to_sql} helper. Mirrors
-     * the condition in {@code PromptBuilder.specRules}.
-     */
     private static boolean hasSpecParameter(MethodSpec method) {
-        return method.parameters().stream()
-                .anyMatch(p -> p.typeDef() != null && p.typeDef().sealed());
+        return method.hasSpecParameter();
     }
 
     private boolean functionExists(String functionName, String repositoryName) {
