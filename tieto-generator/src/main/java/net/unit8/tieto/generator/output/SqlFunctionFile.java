@@ -21,10 +21,12 @@ import java.util.regex.Pattern;
  * <p>The delimiters let a regenerated function replace only its own block, and blocks are always
  * rendered in a stable name-sorted order, so a partial regeneration produces a diff limited to the
  * changed function(s) rather than churning the whole file (which also keeps a Flyway repeatable
- * migration's checksum stable). Parsing keys only on the comment lines, never on the plpgsql body,
- * so dollar-quoted bodies are irrelevant. A {@code <name>_spec_to_sql} helper lives inside its
- * owner's block — the block content is the whole {@link GeneratedFunction#sqlBody()} — so grouping
- * is automatic.</p>
+ * migration's checksum stable). Parsing keys only on the delimiter comment lines and ends a block
+ * on its own {@code -- tieto:end <name>} marker, so an ordinary dollar-quoted body is irrelevant
+ * (the one caveat: a body line that is itself exactly this block's end marker would end it early —
+ * vanishingly unlikely for generated SQL). CRLF line endings are tolerated. A
+ * {@code <name>_spec_to_sql} helper lives inside its owner's block — the block content is the whole
+ * {@link GeneratedFunction#sqlBody()} — so grouping is automatic.</p>
  */
 final class SqlFunctionFile {
 
@@ -55,10 +57,11 @@ final class SqlFunctionFile {
      * not merge such a file, since its blocks cannot be located.
      */
     static SqlFunctionFile parse(String content) {
-        String[] lines = content.split("\n", -1);
+        String[] lines = content.split("\r?\n", -1);   // tolerate CRLF line endings
         Map<String, String> blocks = new TreeMap<>();
         StringBuilder header = new StringBuilder();
         boolean sawBlock = false;
+        boolean preMarkerJunk = false;   // raw (non-comment) SQL before the first marker
         int i = 0;
         while (i < lines.length) {
             Matcher begin = BEGIN.matcher(lines[i]);
@@ -67,7 +70,9 @@ final class SqlFunctionFile {
                 String name = begin.group(1);
                 StringBuilder body = new StringBuilder();
                 i++;
-                while (i < lines.length && !END.matcher(lines[i]).matches()) {
+                // Terminate on this block's OWN end marker so an unrelated `-- tieto:end x` line
+                // inside a body cannot truncate the block.
+                while (i < lines.length && !isEndOf(lines[i], name)) {
                     body.append(lines[i]).append('\n');
                     i++;
                 }
@@ -78,11 +83,22 @@ final class SqlFunctionFile {
                 continue;
             }
             if (!sawBlock) {
+                // Only comments/blanks belong before the first block. Raw SQL here (e.g. a
+                // hand-added function) cannot be merged safely — it would be swallowed into the
+                // header and silently duplicated — so mark the file legacy for the append fallback.
+                if (!lines[i].isBlank() && !lines[i].stripLeading().startsWith("--")) {
+                    preMarkerJunk = true;
+                }
                 header.append(lines[i]).append('\n');
             }
             i++;
         }
-        return new SqlFunctionFile(header.toString().stripTrailing(), blocks, !sawBlock);
+        return new SqlFunctionFile(header.toString().stripTrailing(), blocks, !sawBlock || preMarkerJunk);
+    }
+
+    private static boolean isEndOf(String line, String name) {
+        Matcher end = END.matcher(line);
+        return end.matches() && end.group(1).equals(name);
     }
 
     boolean isLegacy() {
