@@ -18,13 +18,14 @@ docker compose down
 `order_repository.sql` is the Repository implementation. In production tieto-generator writes it with
 AI from the interface Javadoc + schema; here it is hand-written to keep the example self-contained.
 Either way, the acceptance gate is the **hand-written Repository tests** in
-`src/test/java/.../OrderRepositoryTest.java`: they drive `OrderRepository` through the real tieto
-proxy against a Testcontainers PostgreSQL loaded with the same schema + functions + seed, and assert
-what each method must do (including the composable `findBy(OrderSpec)` queries). The committed SQL is
-accepted only if they pass.
+`src/test/java/.../OrderRepositoryIntegrationTest.java`: they drive `OrderRepository` through the
+real tieto proxy against a Testcontainers PostgreSQL loaded with the same schema + functions + seed,
+and assert what each method must do (including the composable `findBy(OrderSpec)` queries). The
+committed SQL is accepted only if they pass. As a Testcontainers test it runs under `verify` (not
+`test`), so `mvn test` stays green without Docker.
 
 ```bash
-mvn -pl examples/vanilla test   # needs Docker
+mvn -pl examples/vanilla verify   # runs the Testcontainers test; needs Docker
 ```
 
 This is the recommended lifecycle: write the tests, generate (or hand-write) the SQL, and commit it
@@ -46,5 +47,5 @@ tieto-generator/target/tieto generate \
   --db-user tieto --db-password tieto \
   --ai-provider claude-cli \
   --output-dir examples/vanilla/src/main/resources/db
-# review the diff, run `mvn -pl examples/vanilla test`, then commit if green
+# review the diff, run `mvn -pl examples/vanilla verify`, then commit if green
 ```

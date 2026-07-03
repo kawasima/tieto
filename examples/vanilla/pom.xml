@@ -78,11 +78,35 @@
                     <mainClass>net.unit8.tieto.example.ExampleApp</mainClass>
                 </configuration>
             </plugin>
-            <!-- A recent Surefire so JUnit (junit-platform 6) tests run in this standalone project. -->
+            <!-- Mirrors the parent build: the Docker-backed *IntegrationTest runs under failsafe
+                 (`mvn verify`), not surefire (`mvn test`), so `mvn test` needs no Docker. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.6</version>
+                <configuration>
+                    <excludes>
+                        <exclude>**/*IntegrationTest.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.5.6</version>
+                <configuration>
+                    <includes>
+                        <include>**/*IntegrationTest.java</include>
+                    </includes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * test so the assertions run against a known, isolated fixture.</p>
  */
 @Testcontainers
-class OrderRepositoryTest {
+class OrderRepositoryIntegrationTest {
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16")
@@ -107,6 +107,18 @@ class OrderRepositoryTest {
         assertThat(saved.getFirst().status()).isEqualTo(OrderStatus.PENDING);
         assertThat(saved.getFirst().lines()).extracting(OrderLine::productId)
                 .containsExactly("PROD-X", "PROD-Y");
+    }
+
+    @Test
+    void saveWithNullLinesStoresAnOrderWithNoLines() throws SQLException {
+        // The domain allows a null line list; it serializes as "lines":null (not absent), which
+        // save() must treat as "no lines" rather than erroring on jsonb_array_length of a scalar.
+        Order neu = new Order(null, "CUST-004", null, OrderStatus.PENDING, LocalDateTime.of(2024, 7, 2, 9, 0));
+        inTransaction(() -> repo.save(neu));
+
+        List<Order> saved = repo.findByCustomerId("CUST-004");
+        assertThat(saved).hasSize(1);
+        assertThat(saved.getFirst().lines()).isEmpty();
     }
 
     // --- updateStatus -----------------------------------------------------------------------
@@ -186,7 +198,7 @@ class OrderRepositoryTest {
     }
 
     private static String classpath(String resource) throws IOException {
-        try (InputStream in = OrderRepositoryTest.class.getClassLoader().getResourceAsStream(resource)) {
+        try (InputStream in = OrderRepositoryIntegrationTest.class.getClassLoader().getResourceAsStream(resource)) {
             if (in == null) {
                 throw new IOException("resource not found: " + resource);
             }

@@ -58,7 +58,7 @@ BEGIN
     )
     FROM orders o
     WHERE o.customer_id = p_customer_id
-    ORDER BY o.created_at DESC;
+    ORDER BY o.created_at DESC, o.id DESC;
 END;
 $$;
 
@@ -79,7 +79,7 @@ BEGIN
     )
     RETURNING id INTO new_order_id;
 
-    IF p_order->'lines' IS NOT NULL AND jsonb_array_length(p_order->'lines') > 0 THEN
+    IF jsonb_typeof(p_order->'lines') = 'array' AND jsonb_array_length(p_order->'lines') > 0 THEN
         FOR line IN SELECT * FROM jsonb_array_elements(p_order->'lines')
         LOOP
             INSERT INTO order_lines (order_id, product_id, quantity, unit_price)
@@ -167,7 +167,7 @@ DECLARE
     ids BIGINT[];
 BEGIN
     -- Resolve matching order ids with the dynamic, parameter-bound predicate ...
-    EXECUTE 'SELECT array_agg(o.id ORDER BY o.created_at DESC) FROM orders o WHERE ' || where_clause
+    EXECUTE 'SELECT array_agg(o.id ORDER BY o.created_at DESC, o.id DESC) FROM orders o WHERE ' || where_clause
         INTO ids USING spec;
 
     -- ... then build the aggregate JSON statically (no dynamic SQL in the projection).
