@@ -42,6 +42,46 @@ class DirectDeployerIntegrationTest {
     }
 
     @Test
+    void verifyOnlyRunsTheChecksButLeavesTheDatabaseUnchanged() throws SQLException {
+        try (Connection conn = newConnection()) {
+            // A verification that actually exercises the function (proving it was created) must
+            // still leave nothing behind — verifyOnly always rolls back.
+            new DirectDeployer().verifyOnly(
+                    conn,
+                    List.of(fn("verify_only_v1",
+                            "CREATE OR REPLACE FUNCTION verify_only_v1() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$")),
+                    List.of(c -> {
+                        try (Statement stmt = c.createStatement();
+                                ResultSet rs = stmt.executeQuery("SELECT verify_only_v1()")) {
+                            rs.next();
+                        } catch (SQLException e) {
+                            throw new GeneratorException("probe failed", e);
+                        }
+                    }));
+        }
+        assertThat(functionExists("verify_only_v1"))
+                .as("verifyOnly must not persist the function")
+                .isFalse();
+    }
+
+    @Test
+    void verifyOnlyThrowsAndPersistsNothingWhenAVerificationFails() throws SQLException {
+        try (Connection conn = newConnection()) {
+            assertThatThrownBy(() -> new DirectDeployer().verifyOnly(
+                    conn,
+                    List.of(fn("verify_fail_v1",
+                            "CREATE OR REPLACE FUNCTION verify_fail_v1() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$")),
+                    List.of(c -> {
+                        throw new GeneratorException("signature mismatch");
+                    })))
+                    .isInstanceOf(GeneratorException.class);
+        }
+        assertThat(functionExists("verify_fail_v1"))
+                .as("a failed verifyOnly leaves the database unchanged")
+                .isFalse();
+    }
+
+    @Test
     void rollsBackTheWholeBatchWhenOneStatementFails() throws SQLException {
         try (Connection conn = newConnection()) {
             assertThatThrownBy(() -> new DirectDeployer().deploy(conn, List.of(
