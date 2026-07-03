@@ -101,14 +101,16 @@ public class GenerateCommand implements Callable<Integer> {
             description = "Output directory for generated SQL files")
     private Path outputDir;
 
-    @Option(names = "--output-mode", defaultValue = "deploy",
-            description = "Output mode: deploy (default) or file")
-    private String outputMode;
+    @Option(names = "--output-mode",
+            description = "Output mode: 'file' (write SQL for review — the default) or 'deploy'"
+                    + " (apply straight to the database, requires --yes). When omitted, --yes"
+                    + " implies 'deploy' and its absence defaults to 'file'.")
+    private String outputMode;   // null when unspecified; resolved by resolveOutputMode(...)
 
     @Option(names = {"--yes", "-y"},
             description = "Confirm deploying AI-generated SQL directly to the database. Required for"
-                    + " --output-mode deploy. Prefer --output-mode file to review the SQL before"
-                    + " applying it.")
+                    + " --output-mode deploy, and (with no --output-mode) selects deploy. Prefer"
+                    + " --output-mode file to review the SQL before applying it.")
     private boolean confirmDeploy;
 
     @Option(names = "--force",
@@ -141,14 +143,32 @@ public class GenerateCommand implements Callable<Integer> {
                     + " Default: ${DEFAULT-VALUE}")
     private String seedSql;
 
+    /**
+     * Resolves the effective output mode: an explicit {@code --output-mode} value is honoured as
+     * given (including an invalid one, which the caller rejects); with none, {@code --yes} selects
+     * {@code deploy} and its absence defaults to the safe {@code file}.
+     */
+    static String resolveOutputMode(String explicitMode, boolean confirmDeploy) {
+        if (explicitMode != null) {
+            return explicitMode;
+        }
+        return confirmDeploy ? "deploy" : "file";
+    }
+
     @Override
     public Integer call() throws Exception {
+        // The default is to write reviewable SQL to a file: generating straight into the live
+        // database is the exception, not the norm. Resolve the mode so an explicit --output-mode
+        // wins; otherwise --yes selects deploy (back-compat for existing scripts) and its absence
+        // defaults to file.
+        outputMode = resolveOutputMode(outputMode, confirmDeploy);
+
         // Reject an unknown --output-mode up front. Every downstream branch compares against
         // "deploy" and otherwise falls through to file output, so a typo like "Deploy" would
-        // silently skip the --yes gate and write a file instead of deploying — fail loudly.
+        // silently write a file instead of deploying — fail loudly.
         if (!"deploy".equals(outputMode) && !"file".equals(outputMode)) {
             System.err.println("Unknown --output-mode '" + outputMode
-                    + "'. Use 'deploy' (default) or 'file'.");
+                    + "'. Use 'file' (default) or 'deploy'.");
             return 2;
         }
 
