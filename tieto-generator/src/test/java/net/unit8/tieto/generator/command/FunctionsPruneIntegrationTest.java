@@ -103,6 +103,22 @@ class FunctionsPruneIntegrationTest {
     }
 
     @Test
+    void aSiblingRepositorysMarkedFunctionSweptInByThePrefixIsNotPruned() throws SQLException {
+        // A function under this prefix but marked as belonging to ANOTHER repository (e.g. an
+        // overlapping-prefix sibling) must never be dropped, even as an orphan with the flag set.
+        try (Connection conn = newConnection(); Statement stmt = conn.createStatement()) {
+            stmt.execute("CREATE OR REPLACE FUNCTION order_repository_sibling_v1(p int)"
+                    + " RETURNS int LANGUAGE sql AS $$ SELECT 1 $$");
+            stmt.execute("COMMENT ON FUNCTION order_repository_sibling_v1 IS 'tieto:generated repository=OtherRepository'");
+        }
+
+        run("--yes", "--include-orphaned");
+
+        assertThat(exists("order_repository_sibling_v1")).as("a sibling's function is left alone").isTrue();
+        assertThat(exists("order_repository_removed_v1")).as("this repository's own orphan is dropped").isFalse();
+    }
+
+    @Test
     void unmanagedFunctionsAreKeptUnlessIncludeUnmanaged() throws SQLException {
         // A superseded function without tieto's marker (hand-written, or pre-marker) is left alone.
         unmark("order_repository_find_by_id_v1");

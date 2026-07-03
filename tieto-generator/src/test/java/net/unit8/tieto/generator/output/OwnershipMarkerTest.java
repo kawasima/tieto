@@ -34,4 +34,15 @@ class OwnershipMarkerTest {
         assertThat(OwnershipMarker.isManaged("hand-written helper")).isFalse();
         assertThat(OwnershipMarker.isManaged(null)).isFalse();
     }
+
+    @Test
+    void isManagedByRequiresTheMarkerToNameThisRepository() {
+        String mine = "tieto:generated repository=OrderRepository method=findById version=1";
+        assertThat(OwnershipMarker.isManagedBy(mine, "OrderRepository")).isTrue();
+        // A sibling repository's marker must NOT count as this repository's — prune would otherwise
+        // drop another repository's live functions swept in by an overlapping prefix.
+        assertThat(OwnershipMarker.isManagedBy(mine, "OrderItemRepository")).isFalse();
+        assertThat(OwnershipMarker.isManagedBy("tieto:generated method=x version=1", "OrderRepository")).isFalse();
+        assertThat(OwnershipMarker.isManagedBy(null, "OrderRepository")).isFalse();
+    }
 }

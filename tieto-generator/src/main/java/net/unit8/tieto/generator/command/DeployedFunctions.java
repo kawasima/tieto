@@ -50,18 +50,18 @@ final class DeployedFunctions {
 
     /**
      * Lists the functions in the connection's current schema whose name starts with {@code prefix}
-     * (a literal prefix; its LIKE wildcards are escaped), with each function's identity argument
-     * list (so an overloaded function can be dropped unambiguously) and its comment (the tieto
-     * ownership marker, if any). Ordered by name.
+     * (matched literally with {@code starts_with}, so the prefix's own {@code _} is not treated as a
+     * LIKE wildcard), with each function's identity argument list (so an overloaded function can be
+     * dropped unambiguously) and its comment (the tieto ownership marker, if any). Ordered by name.
      */
     static List<DeployedFunction> listByPrefix(Connection conn, String prefix) {
         String sql = "SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args,"
                 + " obj_description(p.oid, 'pg_proc') AS comment"
                 + " FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
-                + " WHERE n.nspname = current_schema() AND p.proname LIKE ? ESCAPE '\\'"
+                + " WHERE n.nspname = current_schema() AND starts_with(p.proname, ?)"
                 + " ORDER BY p.proname, args";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, escapeLike(prefix) + "%");
+            ps.setString(1, prefix);
             try (ResultSet rs = ps.executeQuery()) {
                 List<DeployedFunction> functions = new ArrayList<>();
                 while (rs.next()) {
@@ -74,11 +74,6 @@ final class DeployedFunctions {
             throw new GeneratorException(
                     "Failed to list deployed functions with prefix " + prefix + ": " + e.getMessage(), e);
         }
-    }
-
-    /** Escapes the LIKE metacharacters {@code \ _ %} so {@code prefix} is matched literally. */
-    private static String escapeLike(String prefix) {
-        return prefix.replace("\\", "\\\\").replace("_", "\\_").replace("%", "\\%");
     }
 
     /**

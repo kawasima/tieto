@@ -42,6 +42,10 @@ class FunctionInventoryIntegrationTest {
             create(stmt, "order_line_repository_save_v1", "p jsonb");
             // Ownership marker: save carries it (tieto-generated), find_by_customer_id does not.
             stmt.execute("COMMENT ON FUNCTION order_repository_save_v1 IS 'tieto:generated repository=OrderRepository'");
+            // A function swept in by the prefix but marked as belonging to ANOTHER repository must
+            // not count as managed here (else prune would drop a sibling's function).
+            create(stmt, "order_repository_foreign_v1", "p int");
+            stmt.execute("COMMENT ON FUNCTION order_repository_foreign_v1 IS 'tieto:generated repository=OtherRepository'");
         }
 
         RepositorySpec repo = new RepositorySpec("com.example.OrderRepository", "OrderRepository", List.of(
@@ -64,7 +68,7 @@ class FunctionInventoryIntegrationTest {
         assertThat(names(inventory, FunctionInventory.Status.SUPERSEDED))
                 .containsExactly("order_repository_find_by_id_v1");
         assertThat(names(inventory, FunctionInventory.Status.ORPHANED))
-                .containsExactly("order_repository_removed_v1");
+                .containsExactlyInAnyOrder("order_repository_removed_v1", "order_repository_foreign_v1");
         assertThat(inventory.entries()).extracting(FunctionInventory.Entry::functionName)
                 .as("a sibling repository's functions are not in scope")
                 .doesNotContain("order_line_repository_save_v1");
@@ -73,6 +77,8 @@ class FunctionInventoryIntegrationTest {
                 .as("the tieto ownership marker is detected").isTrue();
         assertThat(managed(inventory, "order_repository_find_by_customer_id_v1"))
                 .as("an unmarked function is unmanaged").isFalse();
+        assertThat(managed(inventory, "order_repository_foreign_v1"))
+                .as("another repository's marker does not count as managed here").isFalse();
     }
 
     private static boolean managed(FunctionInventory inv, String functionName) {

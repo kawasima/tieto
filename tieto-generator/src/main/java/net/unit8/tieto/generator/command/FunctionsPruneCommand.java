@@ -8,6 +8,7 @@ import picocli.CommandLine.Option;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -112,7 +113,7 @@ public final class FunctionsPruneCommand implements Callable<Integer> {
         versionsByMethod.forEach((method, versions) ->
                 versions.stream().limit(Math.max(0, keepLast)).forEach(v -> keep.add(method + ":" + v)));
 
-        List<FunctionInventory.Entry> targets = new java.util.ArrayList<>(superseded.stream()
+        List<FunctionInventory.Entry> targets = new ArrayList<>(superseded.stream()
                 .filter(e -> !keep.contains(e.method() + ":" + e.version()))
                 .toList());
         if (includeOrphaned) {

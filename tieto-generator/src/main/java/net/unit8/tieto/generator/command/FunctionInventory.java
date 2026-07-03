@@ -88,7 +88,12 @@ final class FunctionInventory {
         for (DeployedFunctions.DeployedFunction fn : DeployedFunctions.listByPrefix(conn, prefix)) {
             Matcher m = shape.matcher(fn.name());
             String method = m.matches() ? m.group(1) : null;
-            Integer version = m.matches() ? Integer.valueOf(m.group(2)) : null;
+            // A version number too large for an int means the name is not a tieto-shaped one; drop
+            // it to orphaned rather than throwing and aborting the whole command.
+            Integer version = m.matches() ? parseVersion(m.group(2)) : null;
+            if (version == null) {
+                method = null;
+            }
 
             Status status;
             if (currentNames.contains(fn.name())) {
@@ -100,9 +105,17 @@ final class FunctionInventory {
                 status = Status.ORPHANED;
             }
             entries.add(new Entry(fn.name(), fn.identityArgs(), status, method, version,
-                    OwnershipMarker.isManaged(fn.comment())));
+                    OwnershipMarker.isManagedBy(fn.comment(), repo.simpleName())));
         }
         return new FunctionInventory(repo.simpleName(), currentSchema(conn), entries);
+    }
+
+    private static Integer parseVersion(String digits) {
+        try {
+            return Integer.valueOf(digits);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static String currentSchema(Connection conn) {

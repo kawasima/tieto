@@ -554,7 +554,8 @@ public class GenerateCommand implements Callable<Integer> {
             RepositorySpec repoSpec, MethodSpec method, String functionName) {
         String body = generated.sqlBody().stripTrailing();
         if (!body.endsWith(";")) {
-            body += ";";
+            // On its own line, so a trailing line comment in the body can't swallow the terminator.
+            body += "\n;";
         }
         String marker = OwnershipMarker.forFunction(repoSpec.simpleName(), method.name(),
                 method.version(), functionName, hasSpecParameter(method));
