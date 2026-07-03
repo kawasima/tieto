@@ -101,19 +101,30 @@ public class GenerateCommand implements Callable<Integer> {
             description = "Output directory for generated SQL files")
     private Path outputDir;
 
-    @Option(names = "--output-mode", defaultValue = "deploy",
-            description = "Output mode: deploy (default) or file")
-    private String outputMode;
+    @Option(names = "--output-mode",
+            description = "Output mode: 'file' (write SQL for review — the default) or 'deploy'"
+                    + " (apply straight to the database, requires --yes). When omitted, --yes"
+                    + " implies 'deploy' and its absence defaults to 'file'.")
+    private String outputMode;   // null when unspecified; resolved by resolveOutputMode(...)
 
     @Option(names = {"--yes", "-y"},
             description = "Confirm deploying AI-generated SQL directly to the database. Required for"
-                    + " --output-mode deploy. Prefer --output-mode file to review the SQL before"
-                    + " applying it.")
+                    + " --output-mode deploy, and (with no --output-mode) selects deploy. Prefer"
+                    + " --output-mode file to review the SQL before applying it.")
     private boolean confirmDeploy;
 
     @Option(names = "--force",
             description = "Force regeneration even if the function version already exists")
     private boolean force;
+
+    @Option(names = "--verify", negatable = true, defaultValue = "true",
+            description = "In file mode, verify the generated SQL against the database before writing"
+                    + " it: CREATE each function and run the signature/read-smoke/injection checks"
+                    + " inside a transaction that is always rolled back, and refuse to write if any"
+                    + " fails (so committed SQL is at least structurally valid and runnable). On by"
+                    + " default; --no-verify skips it. Needs a dev/CI database with CREATE FUNCTION"
+                    + " rights; the database is left unchanged. Deploy mode always verifies.")
+    private boolean verify;
 
     @Option(names = "--emit-test",
             description = "Also emit a domain-level round-trip JUnit test for the repository"
@@ -141,14 +152,32 @@ public class GenerateCommand implements Callable<Integer> {
                     + " Default: ${DEFAULT-VALUE}")
     private String seedSql;
 
+    /**
+     * Resolves the effective output mode: an explicit {@code --output-mode} value is honoured as
+     * given (including an invalid one, which the caller rejects); with none, {@code --yes} selects
+     * {@code deploy} and its absence defaults to the safe {@code file}.
+     */
+    static String resolveOutputMode(String explicitMode, boolean confirmDeploy) {
+        if (explicitMode != null) {
+            return explicitMode;
+        }
+        return confirmDeploy ? "deploy" : "file";
+    }
+
     @Override
     public Integer call() throws Exception {
+        // The default is to write reviewable SQL to a file: generating straight into the live
+        // database is the exception, not the norm. Resolve the mode so an explicit --output-mode
+        // wins; otherwise --yes selects deploy (back-compat for existing scripts) and its absence
+        // defaults to file.
+        outputMode = resolveOutputMode(outputMode, confirmDeploy);
+
         // Reject an unknown --output-mode up front. Every downstream branch compares against
         // "deploy" and otherwise falls through to file output, so a typo like "Deploy" would
-        // silently skip the --yes gate and write a file instead of deploying — fail loudly.
+        // silently write a file instead of deploying — fail loudly.
         if (!"deploy".equals(outputMode) && !"file".equals(outputMode)) {
             System.err.println("Unknown --output-mode '" + outputMode
-                    + "'. Use 'deploy' (default) or 'file'.");
+                    + "'. Use 'file' (default) or 'deploy'.");
             return 2;
         }
 
@@ -251,8 +280,24 @@ public class GenerateCommand implements Callable<Integer> {
             }
             System.out.println("Deployed " + functions.size() + " functions to database");
         } else {
-            // Non-force runs skip functions already in the file, so append the new ones
-            // to preserve them; --force regenerates everything, so rewrite the whole file.
+            // File mode. Before writing SQL that is meant to be reviewed and committed, verify it
+            // against the database (unless --no-verify): apply the functions and run the same
+            // structural checks as a deploy inside a transaction that is always rolled back, so the
+            // DB is unchanged. Refuse to write if verification fails — do not commit unverified SQL.
+            if (verify) {
+                List<DirectDeployer.DeployVerification> verifications =
+                        buildVerifications(repoSpec, generatedMethods, deployedSpecMethods);
+                try (Connection conn = DriverManager.getConnection(dbUrl, dbUser, dbPassword)) {
+                    new DirectDeployer().verifyOnly(conn, functions, verifications);
+                } catch (GeneratorException e) {
+                    System.err.println("Refusing to write SQL: verification failed — " + e.getMessage()
+                            + "\nFix the interface/schema and regenerate, or re-run with --no-verify"
+                            + " to skip verification (not recommended for SQL you intend to commit).");
+                    return 2;
+                }
+                System.out.println("Verified " + functions.size()
+                        + " function(s) against the database (rolled back; no changes made)");
+            }
             new SqlFileWriter().write(outputDir, repoSpec.simpleName(), functions, force, ai.provenance());
             System.out.println("Wrote SQL files to " + outputDir);
         }

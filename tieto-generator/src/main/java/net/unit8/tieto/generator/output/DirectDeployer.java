@@ -48,17 +48,7 @@ public final class DirectDeployer {
      * @param verifications checks to run before commit
      */
     public void deploy(Connection conn, List<GeneratedFunction> functions, List<DeployVerification> verifications) {
-        try {
-            if (!conn.getAutoCommit()) {
-                throw new GeneratorException(
-                        "deploy requires a connection with no transaction in progress"
-                                + " (autoCommit was false); it manages its own transaction");
-            }
-            conn.setAutoCommit(false);
-        } catch (SQLException e) {
-            throw new GeneratorException(
-                    "Failed to start deploy transaction: " + e.getMessage(), e);
-        }
+        beginTransaction(conn);
         try {
             executeAll(conn, functions);
             verify(conn, verifications);
@@ -75,6 +65,48 @@ public final class DirectDeployer {
             throw t;
         } finally {
             restoreAutoCommit(conn);
+        }
+    }
+
+    /**
+     * Applies and verifies the functions exactly as {@link #deploy} — same CREATEs, same
+     * per-savepoint checks — but <em>always rolls the transaction back</em> instead of committing,
+     * so the database is left untouched. This is the structural gate before writing SQL to a file
+     * for commit: it proves every function is created, its body's table/column references resolve
+     * (a class-42 error is caught only on first call), and Specification leaf values are bound —
+     * without changing the database. Throws {@link GeneratorException} if any check fails.
+     *
+     * @param conn the database connection (no transaction in progress; needs CREATE FUNCTION rights)
+     * @param functions the generated functions to verify
+     * @param verifications checks to run (signature, read smoke, injection probe)
+     */
+    public void verifyOnly(Connection conn, List<GeneratedFunction> functions,
+                           List<DeployVerification> verifications) {
+        beginTransaction(conn);
+        try {
+            executeAll(conn, functions);
+            verify(conn, verifications);
+        } catch (SQLException e) {
+            throw new GeneratorException("Verification failed: " + e.getMessage(), e);
+        } finally {
+            // Verification only: never commit. Roll the whole thing back so the DB is unchanged;
+            // any verifier RuntimeException/Error propagates after the rollback.
+            rollback(conn);
+            restoreAutoCommit(conn);
+        }
+    }
+
+    private static void beginTransaction(Connection conn) {
+        try {
+            if (!conn.getAutoCommit()) {
+                throw new GeneratorException(
+                        "this operation requires a connection with no transaction in progress"
+                                + " (autoCommit was false); it manages its own transaction");
+            }
+            conn.setAutoCommit(false);
+        } catch (SQLException e) {
+            throw new GeneratorException(
+                    "Failed to start transaction: " + e.getMessage(), e);
         }
     }
 

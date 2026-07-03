@@ -70,4 +70,84 @@ class SqlFileWriterTest {
                 .contains("-- Generator: OpenAI model=x ; DROP TABLE orders")
                 .doesNotContain("\n; DROP TABLE orders");
     }
+
+    @Test
+    void mergeReplacesOnlyTheRegeneratedBlockAndKeepsBlocksNameSorted(@TempDir Path dir) throws IOException {
+        SqlFileWriter writer = new SqlFileWriter();
+        // Seed the file with c and a (out of order); the writer must emit them name-sorted.
+        writer.write(dir, "OrderRepository",
+                List.of(fn("order_repository_c_v1"), fn("order_repository_a_v1")), true, "p");
+
+        String seeded = read(dir);
+        assertThat(seeded.indexOf("order_repository_a_v1"))
+                .as("blocks are name-sorted regardless of input order")
+                .isLessThan(seeded.indexOf("order_repository_c_v1"));
+
+        // Non-force run regenerated only b (new) and a (changed body); c was skipped.
+        GeneratedFunction changedA = new GeneratedFunction("order_repository_a_v1",
+                "CREATE OR REPLACE FUNCTION order_repository_a_v1() RETURNS int LANGUAGE sql AS $$ SELECT 42 $$", null);
+        writer.write(dir, "OrderRepository",
+                List.of(fn("order_repository_b_v1"), changedA), false, "p");
+
+        String merged = read(dir);
+        assertThat(merged)
+                .contains("order_repository_a_v1").contains("order_repository_b_v1")
+                .contains("order_repository_c_v1")            // preserved (not regenerated)
+                .contains("SELECT 42")                        // a's block replaced
+                .doesNotContain("SELECT 1 $$\n-- tieto:end order_repository_a_v1");  // old a body gone
+        // Exactly one block per function name.
+        assertThat(merged.split("-- tieto:begin ", -1)).hasSize(4);   // header + 3 blocks
+        assertThat(merged.indexOf("_a_v1")).isLessThan(merged.indexOf("_b_v1"));
+        assertThat(merged.indexOf("_b_v1")).isLessThan(merged.indexOf("_c_v1"));
+    }
+
+    @Test
+    void dollarQuotedBodyWithSemicolonsSurvivesAMerge(@TempDir Path dir) throws IOException {
+        SqlFileWriter writer = new SqlFileWriter();
+        GeneratedFunction body = new GeneratedFunction("order_repository_purge_v1",
+                "CREATE OR REPLACE FUNCTION order_repository_purge_v1(p bigint) RETURNS void LANGUAGE plpgsql AS $$\n"
+                        + "BEGIN\n  DELETE FROM order_lines WHERE order_id = p;\n  DELETE FROM orders WHERE id = p;\nEND\n$$", null);
+        writer.write(dir, "OrderRepository", List.of(body), true, "p");
+
+        // Merging a sibling must not corrupt the dollar-quoted body (which contains ; and newlines).
+        writer.write(dir, "OrderRepository", List.of(fn("order_repository_a_v1")), false, "p");
+
+        assertThat(read(dir))
+                .contains("DELETE FROM order_lines WHERE order_id = p;")
+                .contains("DELETE FROM orders WHERE id = p;")
+                .contains("order_repository_a_v1");
+    }
+
+    @Test
+    void specHelperStaysGroupedInItsOwnersBlock(@TempDir Path dir) throws IOException {
+        SqlFileWriter writer = new SqlFileWriter();
+        GeneratedFunction spec = new GeneratedFunction("order_repository_find_by_v1",
+                "CREATE OR REPLACE FUNCTION order_repository_find_by_v1(spec jsonb) RETURNS SETOF jsonb"
+                        + " LANGUAGE plpgsql AS $$ BEGIN RETURN QUERY EXECUTE 'SELECT 1' USING spec; END $$;\n"
+                        + "CREATE OR REPLACE FUNCTION order_repository_find_by_v1_spec_to_sql(spec jsonb)"
+                        + " RETURNS text LANGUAGE sql AS $$ SELECT 'TRUE' $$", null);
+        writer.write(dir, "OrderRepository", List.of(spec), true, "p");
+        writer.write(dir, "OrderRepository", List.of(fn("order_repository_a_v1")), false, "p");
+
+        String content = read(dir);
+        // The helper has no block of its own; it lives inside the owner's single block.
+        assertThat(content).contains("order_repository_find_by_v1_spec_to_sql");
+        assertThat(content).doesNotContain("-- tieto:begin order_repository_find_by_v1_spec_to_sql");
+        assertThat(content.split("-- tieto:begin order_repository_find_by_v1\\b", -1))
+                .as("exactly one begin marker for the owner").hasSize(2);
+    }
+
+    @Test
+    void aLegacyFileWithoutMarkersIsAppendedWithAWarning(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("order_repository.sql");
+        Files.writeString(file, "-- hand-written, no markers\n"
+                + "CREATE OR REPLACE FUNCTION order_repository_legacy_v1() RETURNS int LANGUAGE sql AS $$ SELECT 7 $$;\n");
+
+        new SqlFileWriter().write(dir, "OrderRepository", List.of(fn("order_repository_a_v1")), false, "p");
+
+        // The legacy function is preserved and the new one appended (no silent half-merge).
+        assertThat(read(dir))
+                .contains("order_repository_legacy_v1")
+                .contains("order_repository_a_v1");
+    }
 }

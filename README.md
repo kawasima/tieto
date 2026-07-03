@@ -90,19 +90,19 @@ public interface OrderRepository {
 ### 3. Generate PostgreSQL Functions with tieto-generator
 
 ```bash
-# Using CLI (e.g. claude CLI) — no API key needed. --yes confirms the direct deploy.
+# Default: write reviewable SQL to a file (no --yes needed). Review it, commit it, apply it.
 tieto generate \
   --source-dir src/main/java \
   --repository net.unit8.tieto.example.domain.OrderRepository \
   --db-url jdbc:postgresql://localhost:5432/tieto_example \
   --db-user tieto --db-password tieto \
-  --ai-provider claude-cli --yes
+  --ai-provider claude-cli   # writes sql/order_repository.sql (--output-dir to change)
+
+# Direct deploy to the database (local/dev iteration): --yes selects and confirms deploy mode
+tieto generate ... --ai-provider claude-cli --yes
 
 # Using a custom CLI command
-tieto generate ... --ai-command "ollama run codellama" --yes
-
-# Recommended for production: write SQL to a file, review it, then apply it
-tieto generate ... --output-mode file
+tieto generate ... --ai-command "ollama run codellama"
 
 # Using API directly
 tieto generate ... --ai-provider claude --ai-api-key $ANTHROPIC_API_KEY
@@ -118,7 +118,7 @@ export TIETO_DB_PASSWORD=...   # picked up automatically; nothing on argv
 tieto generate ... --db-user tieto --ai-provider claude   # prompts for the key, or reads TIETO_AI_API_KEY
 ```
 
-The AI reads the Repository interface Javadoc + the live database schema and produces PostgreSQL Functions. Deploying that SQL straight to the database requires an explicit `--yes`, since it is AI-generated. For production, the recommended workflow is `--output-mode file` → review the SQL → apply it deliberately; reserve direct deploy (`--yes`) for local/dev iteration.
+The AI reads the Repository interface Javadoc + the live database schema and produces PostgreSQL Functions. **By default `generate` writes the SQL to a file** (`--output-mode file`) so you review it, commit it, and apply it deliberately — the production workflow. Deploying straight to the database is the exception: pass `--yes` (which selects `deploy` mode and confirms it), reserved for local/dev iteration. An explicit `--output-mode` always wins; with none, `--yes` means `deploy` and its absence means `file`.
 
 If a function version already exists in the database, it is skipped. Use `--force` to regenerate.
 
@@ -132,6 +132,8 @@ The generator does not deploy *arbitrary* AI output blindly. In `deploy` mode ev
 - **`SECURITY DEFINER` rejected** — a function declared `SECURITY DEFINER` is rejected before deploy, so generated functions always run with the privileges of the role that *calls* them, never the deploy role's.
 
 The smoke and injection-probe calls exercise the function body, so they run inside a savepoint that is always rolled back — only the `CREATE`s are committed. A read-shaped body that mutates data (a `DELETE`/`DROP` inside `$$ … $$`) therefore cannot persist that change at deploy time; its effects are undone with the savepoint even when the deploy succeeds.
+
+**`file` mode verifies too, and writes nothing on failure.** So the SQL you review and commit is at least structurally valid, `file` mode runs the *same* checks by default (`--verify`): it applies the functions to the target database inside a transaction that is **always rolled back** and refuses to write the file if any check fails — the database is left unchanged. This needs a dev/CI database with `CREATE FUNCTION` rights; point `--db-url` at one. Skip it with `--no-verify` (not recommended for SQL you intend to commit). This is a *structural* gate (created, references resolve, Specification values bind) — behavioural correctness is your Repository tests' job (see `--emit-test`).
 
 **What these checks do not guarantee.** They constrain the *shape* of the SQL (allowlisted statement type, expected function name, signature) and exercise read and Specification functions, but they do not validate the *logic* inside a function body. A body that is `CREATE OR REPLACE FUNCTION …` of the expected name but contains `DELETE FROM orders` or `DROP TABLE …` inside its `$$ … $$` passes the allowlist. The injection probe runs only for Specification methods — a plain finder like `findByName(String)` that builds dynamic SQL by string concatenation is not injection-probed. Writes and methods taking a domain or Specification argument are not behaviorally smoked at all (synthetic arguments can't be guaranteed to satisfy constraints). Treat the AI provider endpoint as part of your trust boundary, and read the generated SQL before it runs in production.
 
@@ -151,6 +153,25 @@ The `tieto` command is built as a [Really Executable JAR](https://picocli.info/#
 mvn package -pl tieto-generator -am -DskipTests
 cp tieto-generator/target/tieto /usr/local/bin/
 ```
+
+#### Applying the committed SQL (migration tools)
+
+The generated SQL is **idempotent** — every function is `CREATE OR REPLACE FUNCTION`, and bumping `@FunctionVersion` adds a new `…_vN` name while the old one stays — so the committed file behaves like a database migration you can re-apply safely. Keep the table DDL in your normal *versioned* migrations (they run first) and treat the repository functions as an artifact that is re-applied whenever it changes.
+
+**Flyway** — a *repeatable* migration is the natural fit. Point the generator at your migration directory and name the file `R__…`:
+
+```bash
+tieto generate ... --output-dir src/main/resources/db/migration
+# then commit it as R__order_repository_functions.sql
+```
+
+Flyway re-runs an `R__` migration whenever its checksum changes and always *after* the versioned `V__` migrations that create the tables — so the functions land after the schema they reference, and a regeneration re-applies automatically. Coexisting `…_v1`, `…_v2` versions live side by side in the one file. (Because tieto's merge-write emits functions in a stable, name-sorted order, an unchanged regeneration leaves the checksum untouched.)
+
+**Liquibase** — reference the file from a changeSet marked `runOnChange:"true"` (re-applied when the file changes), or `includeAll` the generated SQL directory.
+
+**Plain psql** — `psql -f order_repository.sql` is safe to re-run; it's what docker-compose does when it loads the file from `/docker-entrypoint-initdb.d`.
+
+**Removing old versions.** A repeatable migration has no "down", so it can never drop a superseded `…_vN` — those accumulate. Remove them deliberately with a versioned migration (`V…__drop_order_repository_v1.sql`) once no running code calls the old version. (A `tieto functions prune` command to inventory and drop superseded versions is planned.)
 
 ### 4. Use the Repository from your application
 

@@ -18,7 +18,7 @@ tieto-generator/target/tieto generate \
   --repository net.unit8.tieto.example.domain.OrderRepository \
   --db-url jdbc:postgresql://localhost:5432/tieto_example \
   --db-user tieto --db-password tieto \
-  --ai-provider claude-cli
+  --ai-provider claude-cli --yes   # --yes deploys straight to the DB (generate defaults to file output)
 ```
 
 ## Run
