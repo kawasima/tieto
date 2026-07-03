@@ -48,4 +48,13 @@ class GenerateCommandOutputModeTest {
                 .contains("'deploy'")
                 .contains("'file'");
     }
+
+    @Test
+    void resolvesToFileByDefaultAndToDeployOnlyWithYes() {
+        // The safe default is file; --yes selects deploy; an explicit mode always wins.
+        assertThat(GenerateCommand.resolveOutputMode(null, false)).isEqualTo("file");
+        assertThat(GenerateCommand.resolveOutputMode(null, true)).isEqualTo("deploy");
+        assertThat(GenerateCommand.resolveOutputMode("file", true)).isEqualTo("file");
+        assertThat(GenerateCommand.resolveOutputMode("deploy", false)).isEqualTo("deploy");
+    }
 }

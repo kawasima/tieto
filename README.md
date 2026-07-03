@@ -90,19 +90,19 @@ public interface OrderRepository {
 ### 3. Generate PostgreSQL Functions with tieto-generator
 
 ```bash
-# Using CLI (e.g. claude CLI) — no API key needed. --yes confirms the direct deploy.
+# Default: write reviewable SQL to a file (no --yes needed). Review it, commit it, apply it.
 tieto generate \
   --source-dir src/main/java \
   --repository net.unit8.tieto.example.domain.OrderRepository \
   --db-url jdbc:postgresql://localhost:5432/tieto_example \
   --db-user tieto --db-password tieto \
-  --ai-provider claude-cli --yes
+  --ai-provider claude-cli   # writes sql/order_repository.sql (--output-dir to change)
+
+# Direct deploy to the database (local/dev iteration): --yes selects and confirms deploy mode
+tieto generate ... --ai-provider claude-cli --yes
 
 # Using a custom CLI command
-tieto generate ... --ai-command "ollama run codellama" --yes
-
-# Recommended for production: write SQL to a file, review it, then apply it
-tieto generate ... --output-mode file
+tieto generate ... --ai-command "ollama run codellama"
 
 # Using API directly
 tieto generate ... --ai-provider claude --ai-api-key $ANTHROPIC_API_KEY
@@ -118,7 +118,7 @@ export TIETO_DB_PASSWORD=...   # picked up automatically; nothing on argv
 tieto generate ... --db-user tieto --ai-provider claude   # prompts for the key, or reads TIETO_AI_API_KEY
 ```
 
-The AI reads the Repository interface Javadoc + the live database schema and produces PostgreSQL Functions. Deploying that SQL straight to the database requires an explicit `--yes`, since it is AI-generated. For production, the recommended workflow is `--output-mode file` → review the SQL → apply it deliberately; reserve direct deploy (`--yes`) for local/dev iteration.
+The AI reads the Repository interface Javadoc + the live database schema and produces PostgreSQL Functions. **By default `generate` writes the SQL to a file** (`--output-mode file`) so you review it, commit it, and apply it deliberately — the production workflow. Deploying straight to the database is the exception: pass `--yes` (which selects `deploy` mode and confirms it), reserved for local/dev iteration. An explicit `--output-mode` always wins; with none, `--yes` means `deploy` and its absence means `file`.
 
 If a function version already exists in the database, it is skipped. Use `--force` to regenerate.
 

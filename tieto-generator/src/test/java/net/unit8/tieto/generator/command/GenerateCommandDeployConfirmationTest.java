@@ -37,8 +37,8 @@ class GenerateCommandDeployConfirmationTest {
         System.setErr(new PrintStream(err, true, StandardCharsets.UTF_8));
         int code;
         try {
-            // Default output mode is deploy; no --yes given.
-            code = run();
+            // Explicit deploy mode, no --yes given.
+            code = run("--output-mode", "deploy");
         } finally {
             System.setErr(original);
         }
