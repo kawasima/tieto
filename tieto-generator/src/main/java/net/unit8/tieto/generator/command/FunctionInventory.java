@@ -32,7 +32,13 @@ final class FunctionInventory {
 
     enum Status { CURRENT, SUPERSEDED, ORPHANED }
 
-    record Entry(String functionName, String identityArgs, Status status) {}
+    /**
+     * A deployed function. {@code method} is the snake-case method name parsed from the function
+     * name and {@code version} its {@code _vN} number (both null when the name does not fit the
+     * {@code {repo}_{method}_v{N}} shape); a {@code _spec_to_sql} helper carries its owner's method
+     * and version.
+     */
+    record Entry(String functionName, String identityArgs, Status status, String method, Integer version) {}
 
     private final String repositoryName;
     private final String schema;
@@ -72,27 +78,26 @@ final class FunctionInventory {
         }
 
         // {prefix}{method}_v{N} with an optional _spec_to_sql helper suffix.
-        Pattern shape = Pattern.compile("^" + Pattern.quote(prefix) + "(.+)_v\\d+(_spec_to_sql)?$");
+        Pattern shape = Pattern.compile("^" + Pattern.quote(prefix) + "(.+)_v(\\d+)(?:_spec_to_sql)?$");
 
         List<Entry> entries = new ArrayList<>();
         for (DeployedFunctions.DeployedFunction fn : DeployedFunctions.listByPrefix(conn, prefix)) {
-            entries.add(new Entry(fn.name(), fn.identityArgs(),
-                    classify(fn.name(), currentNames, declaredMethodSnakes, shape)));
+            Matcher m = shape.matcher(fn.name());
+            String method = m.matches() ? m.group(1) : null;
+            Integer version = m.matches() ? Integer.valueOf(m.group(2)) : null;
+
+            Status status;
+            if (currentNames.contains(fn.name())) {
+                status = Status.CURRENT;
+            } else if (method != null && declaredMethodSnakes.contains(method)) {
+                // A version of a method the interface still declares, but not its current version.
+                status = Status.SUPERSEDED;
+            } else {
+                status = Status.ORPHANED;
+            }
+            entries.add(new Entry(fn.name(), fn.identityArgs(), status, method, version));
         }
         return new FunctionInventory(repo.simpleName(), currentSchema(conn), entries);
-    }
-
-    private static Status classify(String name, Set<String> currentNames,
-                                   Set<String> declaredMethodSnakes, Pattern shape) {
-        if (currentNames.contains(name)) {
-            return Status.CURRENT;
-        }
-        Matcher m = shape.matcher(name);
-        if (m.matches() && declaredMethodSnakes.contains(m.group(1))) {
-            // A version of a method the interface still declares, but not its current version.
-            return Status.SUPERSEDED;
-        }
-        return Status.ORPHANED;
     }
 
     private static String currentSchema(Connection conn) {

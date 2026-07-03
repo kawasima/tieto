@@ -8,7 +8,7 @@ import picocli.CommandLine.Command;
  */
 @Command(name = "functions",
         description = "Inspect and manage a repository's deployed PostgreSQL functions.",
-        subcommands = { FunctionsListCommand.class })
+        subcommands = { FunctionsListCommand.class, FunctionsPruneCommand.class })
 public final class FunctionsCommand implements Runnable {
 
     @Override
