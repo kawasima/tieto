@@ -40,6 +40,8 @@ class FunctionInventoryIntegrationTest {
             create(stmt, "order_repository_removed_v1", "p int");            // orphaned (no such method)
             // A sibling repository sharing the leading token — must be excluded by the prefix.
             create(stmt, "order_line_repository_save_v1", "p jsonb");
+            // Ownership marker: save carries it (tieto-generated), find_by_customer_id does not.
+            stmt.execute("COMMENT ON FUNCTION order_repository_save_v1 IS 'tieto:generated repository=OrderRepository'");
         }
 
         RepositorySpec repo = new RepositorySpec("com.example.OrderRepository", "OrderRepository", List.of(
@@ -66,6 +68,17 @@ class FunctionInventoryIntegrationTest {
         assertThat(inventory.entries()).extracting(FunctionInventory.Entry::functionName)
                 .as("a sibling repository's functions are not in scope")
                 .doesNotContain("order_line_repository_save_v1");
+
+        assertThat(managed(inventory, "order_repository_save_v1"))
+                .as("the tieto ownership marker is detected").isTrue();
+        assertThat(managed(inventory, "order_repository_find_by_customer_id_v1"))
+                .as("an unmarked function is unmanaged").isFalse();
+    }
+
+    private static boolean managed(FunctionInventory inv, String functionName) {
+        return inv.entries().stream()
+                .filter(e -> e.functionName().equals(functionName))
+                .findFirst().orElseThrow().managed();
     }
 
     private static List<String> names(FunctionInventory inv, FunctionInventory.Status status) {

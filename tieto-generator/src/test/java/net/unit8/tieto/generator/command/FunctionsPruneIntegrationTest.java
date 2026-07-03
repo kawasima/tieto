@@ -58,7 +58,15 @@ class FunctionsPruneIntegrationTest {
                     "order_repository_removed_v1"}) {   // orphaned
                 stmt.execute("CREATE OR REPLACE FUNCTION " + name
                         + "(p int) RETURNS int LANGUAGE sql AS $$ SELECT 1 $$");
+                // Stamp tieto's ownership marker, as generate would, so prune treats them as its own.
+                stmt.execute("COMMENT ON FUNCTION " + name + " IS 'tieto:generated repository=OrderRepository'");
             }
+        }
+    }
+
+    private static void unmark(String name) throws SQLException {
+        try (Connection conn = newConnection(); Statement stmt = conn.createStatement()) {
+            stmt.execute("COMMENT ON FUNCTION " + name + " IS NULL");
         }
     }
 
@@ -92,6 +100,19 @@ class FunctionsPruneIntegrationTest {
         run("--yes", "--include-orphaned");
         assertThat(exists("order_repository_removed_v1")).as("orphaned dropped").isFalse();
         assertThat(exists("order_repository_find_by_id_v3")).as("current still kept").isTrue();
+    }
+
+    @Test
+    void unmanagedFunctionsAreKeptUnlessIncludeUnmanaged() throws SQLException {
+        // A superseded function without tieto's marker (hand-written, or pre-marker) is left alone.
+        unmark("order_repository_find_by_id_v1");
+
+        run("--yes");
+        assertThat(exists("order_repository_find_by_id_v1")).as("unmanaged superseded kept").isTrue();
+        assertThat(exists("order_repository_find_by_id_v2")).as("managed superseded dropped").isFalse();
+
+        run("--yes", "--include-unmanaged");
+        assertThat(exists("order_repository_find_by_id_v1")).as("dropped once explicitly opted in").isFalse();
     }
 
     private void run(String... extra) {

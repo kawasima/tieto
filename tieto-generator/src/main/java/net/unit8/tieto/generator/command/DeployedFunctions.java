@@ -42,16 +42,21 @@ final class DeployedFunctions {
         }
     }
 
-    /** A function deployed in the database: its name and its identity argument list (for DROP). */
-    record DeployedFunction(String name, String identityArgs) {}
+    /**
+     * A function deployed in the database: its name, its identity argument list (for DROP), and its
+     * {@code pg_proc} comment ({@code null} if none) — tieto stamps an ownership marker there.
+     */
+    record DeployedFunction(String name, String identityArgs, String comment) {}
 
     /**
      * Lists the functions in the connection's current schema whose name starts with {@code prefix}
      * (a literal prefix; its LIKE wildcards are escaped), with each function's identity argument
-     * list so an overloaded function can be dropped unambiguously. Ordered by name.
+     * list (so an overloaded function can be dropped unambiguously) and its comment (the tieto
+     * ownership marker, if any). Ordered by name.
      */
     static List<DeployedFunction> listByPrefix(Connection conn, String prefix) {
-        String sql = "SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args"
+        String sql = "SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args,"
+                + " obj_description(p.oid, 'pg_proc') AS comment"
                 + " FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
                 + " WHERE n.nspname = current_schema() AND p.proname LIKE ? ESCAPE '\\'"
                 + " ORDER BY p.proname, args";
@@ -60,7 +65,8 @@ final class DeployedFunctions {
             try (ResultSet rs = ps.executeQuery()) {
                 List<DeployedFunction> functions = new ArrayList<>();
                 while (rs.next()) {
-                    functions.add(new DeployedFunction(rs.getString("proname"), rs.getString("args")));
+                    functions.add(new DeployedFunction(
+                            rs.getString("proname"), rs.getString("args"), rs.getString("comment")));
                 }
                 return functions;
             }

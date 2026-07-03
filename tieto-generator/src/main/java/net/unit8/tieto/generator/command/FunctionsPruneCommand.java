@@ -56,9 +56,16 @@ public final class FunctionsPruneCommand implements Callable<Integer> {
 
     @Option(names = "--include-orphaned",
             description = "Also drop orphaned functions (no matching method). Off by default because"
-                    + " an orphan may belong to a sibling repository or be hand-written — review the"
-                    + " `functions list` output first.")
+                    + " an orphan may belong to a sibling repository — review the `functions list`"
+                    + " output first.")
     private boolean includeOrphaned;
+
+    @Option(names = "--include-unmanaged",
+            description = "Also drop functions that lack tieto's ownership marker (hand-written, or"
+                    + " generated before the marker existed). Off by default: prune only removes SQL"
+                    + " it can prove it generated. Use this to clean up a pre-marker deployment, after"
+                    + " reviewing `functions list`.")
+    private boolean includeUnmanaged;
 
     @Override
     public Integer call() throws Exception {
@@ -110,6 +117,11 @@ public final class FunctionsPruneCommand implements Callable<Integer> {
                 .toList());
         if (includeOrphaned) {
             targets.addAll(inventory.byStatus(FunctionInventory.Status.ORPHANED));
+        }
+        // Prune only removes SQL it can prove it generated: a function without tieto's ownership
+        // marker is hand-written (or predates the marker) and is left alone unless --include-unmanaged.
+        if (!includeUnmanaged) {
+            targets.removeIf(e -> !e.managed());
         }
         return targets;
     }

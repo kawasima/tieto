@@ -1,5 +1,6 @@
 package net.unit8.tieto.generator.command;
 
+import net.unit8.tieto.generator.output.OwnershipMarker;
 import net.unit8.tieto.generator.parser.FunctionNaming;
 import net.unit8.tieto.generator.parser.MethodSpec;
 import net.unit8.tieto.generator.parser.RepositorySpec;
@@ -24,9 +25,10 @@ import java.util.regex.Pattern;
  *       snake-case prefix overlaps this one — review before dropping.</li>
  * </ul>
  *
- * <p>Ownership is by naming convention only ({@code {repo}_{method}_v{N}} plus {@code _spec_to_sql}),
- * so a hand-written function sharing that shape is indistinguishable from a generated one; the
- * {@code list}/{@code prune} commands treat it accordingly (dry-run, explicit confirmation).</p>
+ * <p>Status is by naming convention; <em>ownership</em> is by tieto's {@code COMMENT} marker (see
+ * {@link OwnershipMarker}). A function that matches the {@code {repo}_{method}_v{N}} shape but lacks
+ * the marker is hand-written (or predates it): it still appears here, flagged unmanaged, but
+ * {@code prune} leaves it alone unless {@code --include-unmanaged} is given.</p>
  */
 final class FunctionInventory {
 
@@ -36,9 +38,11 @@ final class FunctionInventory {
      * A deployed function. {@code method} is the snake-case method name parsed from the function
      * name and {@code version} its {@code _vN} number (both null when the name does not fit the
      * {@code {repo}_{method}_v{N}} shape); a {@code _spec_to_sql} helper carries its owner's method
-     * and version.
+     * and version. {@code managed} is true when the function carries tieto's ownership marker (so it
+     * is safe to prune); an unmarked function is hand-written or predates the marker.
      */
-    record Entry(String functionName, String identityArgs, Status status, String method, Integer version) {}
+    record Entry(String functionName, String identityArgs, Status status, String method,
+                 Integer version, boolean managed) {}
 
     private final String repositoryName;
     private final String schema;
@@ -95,7 +99,8 @@ final class FunctionInventory {
             } else {
                 status = Status.ORPHANED;
             }
-            entries.add(new Entry(fn.name(), fn.identityArgs(), status, method, version));
+            entries.add(new Entry(fn.name(), fn.identityArgs(), status, method, version,
+                    OwnershipMarker.isManaged(fn.comment())));
         }
         return new FunctionInventory(repo.simpleName(), currentSchema(conn), entries);
     }

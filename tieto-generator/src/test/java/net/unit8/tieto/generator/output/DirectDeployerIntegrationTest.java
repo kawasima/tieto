@@ -42,6 +42,24 @@ class DirectDeployerIntegrationTest {
     }
 
     @Test
+    void deploysABodyThatCarriesTheOwnershipMarkerAndTheCommentIsReadable() throws SQLException {
+        // A generated function's sqlBody is CREATE + the appended COMMENT ON FUNCTION marker; the
+        // deploy must run both so the marker lands on the function.
+        String body = "CREATE OR REPLACE FUNCTION marked_v1() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;\n\n"
+                + "COMMENT ON FUNCTION marked_v1 IS 'tieto:generated repository=Marked method=x version=1';";
+        try (Connection conn = newConnection()) {
+            new DirectDeployer().deploy(conn, List.of(fn("marked_v1", body)));
+        }
+        try (Connection conn = newConnection();
+                Statement st = conn.createStatement();
+                ResultSet rs = st.executeQuery(
+                        "SELECT obj_description('marked_v1'::regproc, 'pg_proc')")) {
+            assertThat(rs.next()).isTrue();
+            assertThat(rs.getString(1)).startsWith("tieto:generated");
+        }
+    }
+
+    @Test
     void verifyOnlyRunsTheChecksButLeavesTheDatabaseUnchanged() throws SQLException {
         try (Connection conn = newConnection()) {
             // A verification that actually exercises the function (proving it was created) must

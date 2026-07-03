@@ -73,7 +73,9 @@ public final class FunctionsListCommand implements Callable<Integer> {
         System.out.println();
         System.out.println("  " + label + " (" + entries.size() + ") — " + note + ":");
         for (FunctionInventory.Entry e : entries) {
-            System.out.println("    " + e.functionName() + "(" + e.identityArgs() + ")");
+            // Unmarked functions are hand-written or predate the ownership marker; prune leaves them.
+            String ownership = e.managed() ? "" : "  [unmanaged — not tieto-generated]";
+            System.out.println("    " + e.functionName() + "(" + e.identityArgs() + ")" + ownership);
         }
     }
 }

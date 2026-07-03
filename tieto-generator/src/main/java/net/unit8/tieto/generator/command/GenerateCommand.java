@@ -8,6 +8,7 @@ import net.unit8.tieto.generator.ai.PromptBuilder;
 import net.unit8.tieto.generator.parser.FunctionNaming;
 import net.unit8.tieto.generator.parser.GeneratorException;
 import net.unit8.tieto.generator.output.DirectDeployer;
+import net.unit8.tieto.generator.output.OwnershipMarker;
 import net.unit8.tieto.generator.output.ReadSmokeVerifier;
 import net.unit8.tieto.generator.output.RepositoryTestGenerator;
 import net.unit8.tieto.generator.output.SignatureVerifier;
@@ -252,7 +253,9 @@ public class GenerateCommand implements Callable<Integer> {
             // CREATE OR REPLACE FUNCTION is allowed, plus the _spec_to_sql helper
             // when (and only when) the method takes a composable Specification.
             validator.validate(generated.sqlBody(), versionedName, hasSpecParameter(method));
-            functions.add(generated);
+            // Stamp tieto's ownership marker onto the validated SQL, so `functions prune` can later
+            // tell this function apart from a hand-written one that happens to match the naming shape.
+            functions.add(withOwnershipMarker(generated, repoSpec, method, versionedName));
             generatedMethods.add(method);
             if (hasSpecParameter(method)) {
                 deployedSpecMethods.add(method);
@@ -544,6 +547,18 @@ public class GenerateCommand implements Callable<Integer> {
 
     private static boolean hasSpecParameter(MethodSpec method) {
         return method.hasSpecParameter();
+    }
+
+    /** Appends tieto's ownership {@code COMMENT ON FUNCTION} marker to a validated function's SQL. */
+    private static GeneratedFunction withOwnershipMarker(GeneratedFunction generated,
+            RepositorySpec repoSpec, MethodSpec method, String functionName) {
+        String body = generated.sqlBody().stripTrailing();
+        if (!body.endsWith(";")) {
+            body += ";";
+        }
+        String marker = OwnershipMarker.forFunction(repoSpec.simpleName(), method.name(),
+                method.version(), functionName, hasSpecParameter(method));
+        return new GeneratedFunction(generated.functionName(), body + "\n\n" + marker, generated.testSql());
     }
 
     private boolean functionExists(String functionName, String repositoryName) {
