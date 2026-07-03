@@ -87,7 +87,28 @@ public interface OrderRepository {
 
 `@FunctionVersion` is optional — defaults to v1 if omitted. Bump the version number when you change the function spec, and tieto-generator will generate a new version while the old one remains deployed.
 
-### 3. Generate PostgreSQL Functions with tieto-generator
+### 3. Write the Repository tests — the acceptance gate
+
+Write these **before** you generate. The generated SQL is only trustworthy source of truth if you can show it does what the Repository *means*, and the honest oracle for that is a test you wrote, not a property machine-derived from the interface. tieto's split — a pure interface on the Java side, the implementation in the database — lets you test the Repository directly through the real proxy, so the generated function is just a candidate implementation that must satisfy those tests. They are the gate: the generated SQL is committed only once they pass (together with the structural `--verify` gate below). This is TDD for the generated SQL — write the intent first, then generate an implementation that meets it.
+
+Two fixtures are **yours to author, not tieto's to generate**:
+
+- **The table DDL.** In tieto's split, tables are the human's side — keep them in your normal versioned migrations.
+- **A small, representative seed.** Plain `INSERT` SQL — the same fixture that seeds your local dev database (in the examples, `db/02_testdata.sql`, which docker-compose also loads at startup). Shape it to exercise each read method's intended behaviour: a customer with *two* orders to pin `findByCustomerId`'s ordering, an order with *no* lines to hit the empty-collection path, boundary values for a `findBy(spec)`. tieto never writes the seed; it only loads the file you point `--schema-sql` / `--seed-sql` at.
+
+Not every method needs the seed. A write-then-read round trip (`save`, then read it back) is self-contained — it inserts its own data. A *pure read* (`findById`, `findByCustomerId`, a `findBy(spec)`) needs rows to already exist, and that is where the seed earns its keep. So author the seed to cover exactly the reads your assertions make.
+
+```java
+@Test
+void findByCustomerIdReturnsOrdersNewestFirst() {
+    // asserts against the known seed: CUST-001 has two orders (ids 2, 1 by created_at desc)
+    assertThat(repo.findByCustomerId("CUST-001")).extracting(Order::id).containsExactly(2L, 1L);
+}
+```
+
+`tieto generate … --emit-test` scaffolds this test for you — the Testcontainers wiring, schema/seed loading, and proxy setup, plus one stub per method — so you fill in the assertions, not the plumbing (details under Generate below). The examples' `OrderRepositoryIntegrationTest` (vanilla) and `OrderServiceIntegrationTest` (Spring, which also proves `@Transactional` rollback) are exactly this gate.
+
+### 4. Generate PostgreSQL Functions with tieto-generator
 
 ```bash
 # Default: write reviewable SQL to a file (no --yes needed). Review it, commit it, apply it.
@@ -139,13 +160,13 @@ The smoke and injection-probe calls exercise the function body, so they run insi
 
 **Recommended production posture.** Review is the real guard here: use `--output-mode file` to write the SQL out, review it, and apply it deliberately; reserve direct deploy (`--yes`) for local/dev iteration. As defense-in-depth, run with **least-privilege database roles** — the generator rejects `SECURITY DEFINER`, so these functions execute with the privileges of the role that *calls* them, not the role that deployed them. Restricting the deploy role alone does not stop a destructive body: it would run on the first real call with the application's runtime privileges (a smoked read *does* exercise the body at deploy time, but inside a savepoint that is always rolled back, so its side effects never persist). Scope both roles — the deploy role to `CREATE FUNCTION` in the target schema (not `DROP`/`TRUNCATE` of unrelated objects), and the application's runtime role to only what the legitimate repository functions need — so a destructive body's blast radius is limited to objects that role can already touch.
 
-For domain-level verification — does the Repository behave correctly with real domain objects? — generate a round-trip test:
+To scaffold the acceptance-gate test from step 3 rather than wire the harness by hand, generate it:
 
 ```bash
 tieto generate ... --emit-test
 ```
 
-This emits a JUnit + Testcontainers test (`<Repo>RoundTripTest.java`) plus the functions as a test resource. In `deploy` mode the resource is read back complete from the database (`pg_get_functiondef`), so it includes every repository function regardless of how many were regenerated this run. The test drives the Repository through the real tieto-core proxy against a PostgreSQL container loaded with your schema and seed data. Finders with simple arguments get an automatic smoke assertion; a `save` paired with a finder that reads back by one of the saved object's fields gets an automatic round-trip assertion; everything else is a `@Disabled` scaffold with a `// TODO` to fill in (building a valid aggregate that satisfies foreign keys is left to you). The test source is not overwritten on regeneration unless `--force` (so your edits survive), and `--emit-test` works even when all functions already exist. Customize the layout with `--test-output-dir`, `--test-resources-dir`, `--schema-sql`, and `--seed-sql`.
+This emits a JUnit + Testcontainers test (`<Repo>RoundTripTest.java`) plus the functions as a test resource. It is a *scaffold for the tests you own*, not a replacement — the assertions that encode intent are still yours to write. In `deploy` mode the resource is read back complete from the database (`pg_get_functiondef`), so it includes every repository function regardless of how many were regenerated this run. The test drives the Repository through the real tieto-core proxy against a PostgreSQL container loaded with your schema and seed data. Finders with simple arguments get an automatic smoke assertion; a `save` paired with a finder that reads back by one of the saved object's fields gets an automatic round-trip assertion; everything else is a `@Disabled` scaffold with a `// TODO` to fill in (building a valid aggregate that satisfies foreign keys is left to you). The test source is not overwritten on regeneration unless `--force` (so your edits survive), and `--emit-test` works even when all functions already exist. Customize the layout with `--test-output-dir`, `--test-resources-dir`, `--schema-sql`, and `--seed-sql`.
 
 The `tieto` command is built as a [Really Executable JAR](https://picocli.info/#_really_executable_jar):
 
@@ -173,7 +194,7 @@ Flyway re-runs an `R__` migration whenever its checksum changes and always *afte
 
 **Removing old versions.** A repeatable migration has no "down", so it can never drop a superseded `…_vN` — those accumulate. `tieto functions list --source-dir … --repository … --db-url …` classifies a repository's deployed functions as **current** (match a declared method at its `@FunctionVersion`), **superseded** (an old version of a still-declared method), or **orphaned** (no matching method — removed/renamed). `tieto functions prune …` drops them — **dry-run by default** (it prints what it would drop), superseded-only, `--yes` to execute, `--keep-last N` to retain the newest N per method as a rollback cushion, and `--include-orphaned` to also drop orphans (off by default, since an orphan may belong to a sibling repository). It never touches current functions, and drops in a single transaction. Crucially, prune only removes functions it can prove it generated: `generate` stamps each function with an ownership marker (`COMMENT ON FUNCTION … IS 'tieto:generated …'`), and prune skips anything unmarked — a hand-written function that happens to match the `…_vN` naming shape is left alone (use `--include-unmanaged` to override, e.g. to clean up a deployment that predates the marker). Only run it once no deployed code still calls the old version (during a rolling deploy, old instances may still call `…_v{N-1}`), so it is a deliberate operational step, never wired into `generate`.
 
-### 4. Use the Repository from your application
+### 5. Use the Repository from your application
 
 **Standalone (plain Java):**
 
